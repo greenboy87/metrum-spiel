@@ -344,6 +344,9 @@ async function lRaumOeffnen(weiter) {
     if (weiter) {
         Object.assign(L, weiter);
     } else {
+        // Ein vergessener Raum (nicht "Schliessen" gedrueckt) bliebe sonst fuer immer in der Datenbank
+        const alt = lesen('mt-lehrer', null);
+        if (alt && alt.code) remove(ref(db, pfad(alt.code))).catch(() => { });
         L.code = zufall(4, CODE_ZEICHEN);
         L.spiel = zufall(4, CODE_ZEICHEN);
         L.plan = planBauen();

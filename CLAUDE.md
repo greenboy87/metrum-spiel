@@ -20,7 +20,10 @@ Die Lehrkraft wählt sie einmal aus dem Stundenordner
 Projekt `greenboys-scoreboard`, Knoten `rooms/mt-<CODE>` (offen, ohne
 `.validate`) – deshalb nur kleine, flache Daten. Aufbau steht oben in
 `js/spiel.js`. Jeder liest nur `lehrer`, die Lehrkraft dazu `spieler` und die
-Antworten der laufenden Runde: wenige KB pro Stunde. „Schließen“ löscht den Raum.
+Antworten der laufenden Runde: grob 5 MB pro Stunde bei 28 Kindern (obere
+Grenze). „Schließen“ löscht den Raum; wer das vergisst, dem räumt das nächste
+„Raum öffnen“ den alten Raum weg. Präfix `mt-` ist für dieses Spiel vergeben
+(`zz-` = Rhythmus-Klassenspiel, Scoreboard = Klassennamen ohne Präfix).
 
 ## Kein Tailwind, kein Build
 
