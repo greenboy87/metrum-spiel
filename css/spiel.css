@@ -300,3 +300,30 @@ button.name:hover { background: rgba(248, 113, 113, .2); border-color: var(--rot
     .leiter { display: none; }
 }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; } }
+
+/* ---------- Eigene Songs ---------- */
+.hb { display: inline-flex; align-items: center; gap: .35rem; cursor: pointer; }
+.hb input, .eigene-zeile input[type=checkbox], .spieler-zeile input { width: 1.1rem; height: 1.1rem; accent-color: var(--gruen); }
+.hb small { color: var(--blass); }
+.eigene-liste { display: grid; gap: .45rem; margin-top: .6rem; }
+.eigene-zeile { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem; padding: .45rem .6rem; border-radius: .8rem; background: rgba(255, 255, 255, .04); }
+.feld { font: inherit; color: var(--text); background: rgba(0, 0, 0, .3); border: 1px solid rgba(255, 255, 255, .15); border-radius: .6rem; padding: .35rem .55rem; }
+.feld:focus { outline: none; border-color: var(--gruen); }
+.feld.titel { flex: 1; min-width: 12rem; }
+.feld.bpm { width: 5.2rem; }
+.btn.klein { padding: .35rem .6rem; font-size: .85rem; border-radius: .6rem; }
+.eigene-info { flex-basis: 100%; font-size: .85rem; color: var(--blass); }
+.eigene-info:empty { display: none; }
+.eigene-info b { color: var(--text); }
+.warnung { color: var(--gold); }
+
+/* ---------- Mitspieler ---------- */
+.weg-zahl { margin-left: .3rem; font-size: .8rem; color: #fecaca; background: rgba(248, 113, 113, .25); padding: .05rem .4rem; border-radius: 999px; }
+.name.weg { background: rgba(248, 113, 113, .12); border: 1px dashed var(--rot); color: #fecaca; }
+.spieler-liste { display: grid; gap: .3rem; max-height: 55vh; overflow: auto; min-width: min(480px, 85vw); text-align: left; }
+.spieler-zeile { display: flex; align-items: center; gap: .6rem; padding: .4rem .6rem; border-radius: .7rem; background: rgba(255, 255, 255, .04); cursor: pointer; }
+.spieler-zeile .n { flex: 1; font-weight: 700; }
+.spieler-zeile .p { color: var(--blass); font-size: .9rem; }
+.punkt-status { width: .65rem; height: .65rem; border-radius: 50%; background: var(--gruen); box-shadow: 0 0 6px var(--gruen); flex: none; }
+.spieler-zeile.weg .punkt-status { background: var(--rot); box-shadow: 0 0 6px var(--rot); }
+.spieler-zeile.weg { background: rgba(248, 113, 113, .08); }

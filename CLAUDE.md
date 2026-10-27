@@ -17,6 +17,24 @@ allein, ohne Anmeldung und ohne Datenbank. Fragen stehen in `FRAGEN` (erste
 Antwort = richtig). Den Strahlen-Hintergrund zeichnet CSS – das Bild von
 LearningApps wird bewusst nicht übernommen.
 
+## Eigene Songs, Mitspieler, Vollbild
+
+- **Eigene Songs** (Startseite): liegen wie die fünf Folie-16-Songs nur in
+  IndexedDB (`metrum-challenge`/`hb`, Schlüssel `e-…`: `{blob, name, titel,
+  bpm, seit}`). Häkchen = im Spiel (`mt-hb-aus` in localStorage). „Messen“
+  (`bpmMessen`) schätzt das Tempo per Spektralfluss, gesamt und Bass < 150 Hz,
+  wie mit Python an Toms Songs geeicht; bei Widerspruch oder starkem 3:2-/4:3-
+  Nachbarn nennt es beide Werte. „Tippen“ übernimmt das getippte Tempo.
+- **Anwesenheit:** Kinder setzen `spieler/<id>/on = true` und hinterlegen
+  `onDisconnect(...).set(false)`. Kinder ohne Verbindung zählen bei „alle
+  abgegeben“ nicht mit. Mitspieler-Dialog (Knopf oder Taste M): einzeln,
+  „Ohne Verbindung“ oder Auswahl entfernen – ein `update` für alle.
+- **Entfernen** schreibt `lehrer/entfernt/<id> = Zeitpunkt`. Wer danach mit
+  „Mitspielen“ neu beitritt (`spieler.seit` später), wird wieder aufgenommen;
+  ein online entferntes Gerät verliert `mt-raum` und tritt nicht von selbst
+  wieder bei.
+- **Vollbild:** Knopf in der Raumleiste oder Taste F.
+
 ## Keine Musik ins Repository
 
 Die Songs von Folie 16 sind urheberrechtlich geschützt und liegen **nicht** hier.

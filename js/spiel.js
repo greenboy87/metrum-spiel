@@ -31,7 +31,7 @@
    Abgaben mit mindestens 60 Grundpunkten. Siehe PUNKTE_* und *_Basis().
    ============================================================ */
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js';
-import { getDatabase, ref, set, update, get, onValue, remove, serverTimestamp } from 'https://www.gstatic.com/firebasejs/10.13.0/firebase-database.js';
+import { getDatabase, ref, set, update, get, onValue, remove, serverTimestamp, onDisconnect } from 'https://www.gstatic.com/firebasejs/10.13.0/firebase-database.js';
 
 const firebaseConfig = {
     apiKey: 'AIzaSyA8aYVFa8XbIwviC4iJDA46gK0rMfF97Ac',
@@ -162,6 +162,8 @@ onValue(ref(db, '.info/connected'), s => {
     const el = $('verbindung');
     el.classList.toggle('an', !!s.val());
     el.title = s.val() ? 'Verbunden' : 'Keine Verbindung';
+    // Kind war kurz weg (WLAN, Sperrbildschirm): wieder als verbunden melden
+    if (s.val() && sDrin) sPraesenz();   // Callback kommt erst nach dem Laden des Moduls
 });
 
 /* ---------- Audio (Metronom, Klatschen) ----------
@@ -255,6 +257,102 @@ async function hbAlle() {
         });
     } catch (e) { return {}; }
 }
+/* Eigene Songs liegen im selben Speicher unter Schluesseln "e-xxxxxx"
+   (die fuenf Songs von Folie 16 unter 1-5): {blob, name, titel, bpm}. */
+async function hbAendern(key, felder) {
+    const d = await idb();
+    await new Promise((res, rej) => {
+        const tx = d.transaction('hb', 'readwrite'), st = tx.objectStore('hb');
+        const r = st.get(key);
+        r.onsuccess = () => { if (r.result) st.put(Object.assign(r.result, felder), key); };
+        tx.oncomplete = res; tx.onerror = () => rej(tx.error);
+    });
+}
+async function hbLoeschen(key) {
+    const d = await idb();
+    await new Promise((res, rej) => {
+        const tx = d.transaction('hb', 'readwrite');
+        tx.objectStore('hb').delete(key);
+        tx.oncomplete = res; tx.onerror = () => rej(tx.error);
+    });
+}
+// Abgewaehlte Songs (Schluessel als Text), lokal gemerkt
+const hbAus = () => new Set(lesen('mt-hb-aus', []));
+function hbAusSetzen(key, aus) {
+    const s = hbAus();
+    if (aus) s.add(String(key)); else s.delete(String(key));
+    schreiben('mt-hb-aus', [...s]);
+}
+
+/* Tempo-Vorschlag fuer eigene Songs, wie mit Python an Toms Songs geeicht:
+   45 s ab Sekunde 30 auf 11025 Hz umrechnen, Spektralfluss (FFT 1024, Schritt
+   128) fuer den ganzen Klang und nur fuer den Bass unter 150 Hz (Bassdrum),
+   Autokorrelation 70-180 bpm mit doppeltem Schlag und Vorliebe um 115 bpm.
+   Bass und Gesamtklang widersprechen sich bei Halftime-, Triolen- oder
+   punktierten Grooves - dann nennt die Seite beide Werte. */
+async function bpmMessen(blob) {
+    const roh = await audio().decodeAudioData(await blob.arrayBuffer());
+    const SR = 11025, start = roh.duration > 80 ? 30 : 0, dauer = Math.min(45, roh.duration - start);
+    const off = new OfflineAudioContext(1, Math.ceil(dauer * SR), SR);
+    const q = off.createBufferSource();
+    q.buffer = roh; q.connect(off.destination); q.start(0, start, dauer);
+    const x = (await off.startRendering()).getChannelData(0);
+    const N = 1024, HOP = 128, frames = Math.floor((x.length - N) / HOP);
+    if (frames < 200) throw new Error('zu kurz');
+    // FFT-Vorarbeit: Fenster, Bit-Umkehr, Drehfaktoren
+    const fenster = new Float64Array(N), umk = new Uint32Array(N), cos = new Float64Array(N / 2), sin = new Float64Array(N / 2);
+    for (let i = 0; i < N; i++) { fenster[i] = 0.5 - 0.5 * Math.cos(2 * Math.PI * i / (N - 1)); let r = 0; for (let b = 0, v = i; b < 10; b++, v >>= 1) r = (r << 1) | (v & 1); umk[i] = r; }
+    for (let i = 0; i < N / 2; i++) { cos[i] = Math.cos(2 * Math.PI * i / N); sin[i] = -Math.sin(2 * Math.PI * i / N); }
+    const re = new Float64Array(N), im = new Float64Array(N), B = N / 2 + 1, bassBis = Math.ceil(150 / (SR / N));
+    let alt = new Float64Array(B), neu = new Float64Array(B);
+    const fv = new Float64Array(frames), fb = new Float64Array(frames);
+    for (let f = 0; f < frames; f++) {
+        for (let i = 0; i < N; i++) { re[umk[i]] = x[f * HOP + i] * fenster[i]; im[umk[i]] = 0; }
+        for (let len = 2; len <= N; len <<= 1) {
+            const halb = len >> 1, schritt = N / len;
+            for (let i = 0; i < N; i += len) for (let j = 0; j < halb; j++) {
+                const k = j * schritt, a = i + j, b = a + halb;
+                const tr = re[b] * cos[k] - im[b] * sin[k], ti = re[b] * sin[k] + im[b] * cos[k];
+                re[b] = re[a] - tr; im[b] = im[a] - ti; re[a] += tr; im[a] += ti;
+            }
+        }
+        let sv = 0, sb = 0;
+        for (let k = 0; k < B; k++) {
+            neu[k] = Math.log1p(100 * Math.hypot(re[k], im[k]));
+            if (f) { const d = Math.max(0, neu[k] - alt[k]); sv += d; if (k > 0 && k < bassBis) sb += d; }
+        }
+        fv[f] = sv; fb[f] = sb;
+        [alt, neu] = [neu, alt];
+    }
+    const fps = SR / HOP;
+    const tempoAus = (fl) => {
+        const g = new Float64Array(frames);
+        let s = 0;
+        for (let i = 0; i < frames; i++) { s += fl[i] - (i >= 16 ? fl[i - 16] : 0); g[i] = Math.max(0, fl[i] - s / 16); }
+        const ac = (lag) => {
+            const l0 = Math.floor(lag), t = lag - l0;
+            let s0 = 0, s1 = 0;
+            for (let i = 0; i + l0 + 1 < frames; i++) { s0 += g[i] * g[i + l0]; s1 += g[i] * g[i + l0 + 1]; }
+            return s0 * (1 - t) + s1 * t;
+        };
+        const wert = (bpm) => { const lag = fps * 60 / bpm; return (ac(lag) + 0.5 * ac(lag * 2)) * Math.exp(-0.5 * (Math.log2(bpm / 115) / 0.8) ** 2); };
+        let best = 0, bestBpm = 0;
+        for (let bpm = 70; bpm <= 180; bpm += 0.25) { const w = wert(bpm); if (w > best) { best = w; bestBpm = bpm; } }
+        // Typische Verwechslungen (3:2, 4:3 bei Triolen/Punktierungen): fast gleich stark? Dann als zweite Moeglichkeit nennen
+        let alt = null, altWert = 0;
+        for (const f of [1.5, 2 / 3, 4 / 3, 3 / 4]) {
+            const z = bestBpm * f;
+            if (z < 70 || z > 200) continue;
+            let w = 0, zb = z;
+            for (let d = -2; d <= 2; d += 0.25) { const ww = wert(z + d); if (ww > w) { w = ww; zb = z + d; } }
+            if (w > altWert) { altWert = w; alt = zb; }
+        }
+        return { bpm: bestBpm, alt: alt && altWert >= 0.8 * best ? Math.round(alt) : null };
+    };
+    const v = tempoAus(fv), b = tempoAus(fb);
+    const einig = Math.abs(v.bpm - b.bpm) / b.bpm < 0.03;
+    return { voll: Math.round(v.bpm), bass: Math.round(b.bpm), einig, alt: einig ? (b.alt || v.alt) : null };
+}
 
 /* ============================================================
    LEHRKRAFT
@@ -278,8 +376,14 @@ function planBauen() {
     schreiben('mt-bloecke', an);
     const plan = [];
     if (an.includes('tempo')) {
-        plan.push({ art: 'teil', teil: 'tempo' });
-        TEMPO.forEach((t, i) => plan.push({ art: 'tempo', i, hb: t.hb, titel: t.titel, bpm: t.bpm }));
+        const aus = hbAus();
+        const songs = TEMPO.filter(t => !aus.has(String(t.hb))).map(t => ({ hb: t.hb, titel: t.titel, bpm: t.bpm }))
+            .concat(eigeneSongs().filter(([k, v]) => !aus.has(k) && v.bpm >= 40 && v.bpm <= 240)
+                .map(([k, v]) => ({ hb: k, titel: v.titel || v.name, bpm: Number(v.bpm) })));
+        if (songs.length) {
+            plan.push({ art: 'teil', teil: 'tempo' });
+            songs.forEach((t, i) => plan.push(Object.assign({ art: 'tempo', i, k: i + 1, n: songs.length }, t)));
+        }
     }
     if (an.includes('quiz')) {
         plan.push({ art: 'teil', teil: 'quiz' });
@@ -306,15 +410,95 @@ function regelnHtml() {
     </ul>`;
 }
 
+const eigeneSongs = () => Object.entries(L.hb).filter(([k]) => String(k).startsWith('e-'))
+    .sort((a, b) => (a[1].seit || 0) - (b[1].seit || 0));
 async function lHbAnzeigen() {
     L.hb = await hbAlle();
     Object.values(L.hbUrl).forEach(u => URL.revokeObjectURL(u));
     L.hbUrl = {};
     Object.entries(L.hb).forEach(([k, v]) => { L.hbUrl[k] = URL.createObjectURL(v.blob); });
+    const aus = hbAus();
     $('l-hb-liste').innerHTML = TEMPO.map(t => {
         const da = !!L.hb[t.hb];
-        return `<span class="hb ${da ? 'da' : ''}"><i class="fa-solid ${da ? 'fa-circle-check' : 'fa-circle'}"></i> HB${t.hb} ${esc(t.titel)}</span>`;
+        return `<label class="hb ${da ? 'da' : ''}" title="${da ? 'geladen' : 'nicht geladen – dann über Folie 16 abspielen'}">
+            <input type="checkbox" data-hb-an="${t.hb}" ${aus.has(String(t.hb)) ? '' : 'checked'}>
+            <i class="fa-solid ${da ? 'fa-circle-check' : 'fa-circle'}"></i> HB${t.hb} ${esc(t.titel)} <small>${t.bpm} bpm</small></label>`;
     }).join('');
+    lEigeneZeigen();
+}
+function lEigeneZeigen() {
+    const aus = hbAus(), liste = eigeneSongs();
+    $('l-eigene-liste').innerHTML = liste.length ? liste.map(([k, v]) => `<div class="eigene-zeile" data-eigen="${esc(k)}">
+            <input type="checkbox" data-hb-an="${esc(k)}" ${aus.has(k) ? '' : 'checked'} title="Kommt im Spiel vor">
+            <button type="button" class="btn klein" data-hoeren="${esc(k)}" title="Vorhören"><i class="fa-solid ${song.dataset.key === k && !song.paused ? 'fa-pause' : 'fa-play'}"></i></button>
+            <input type="text" class="feld titel" data-feld="titel" value="${esc(v.titel || '')}" placeholder="Interpret: Titel" maxlength="60">
+            <input type="number" class="feld bpm" data-feld="bpm" value="${v.bpm || ''}" placeholder="bpm" min="40" max="240" step="1">
+            <button type="button" class="btn klein" data-messen="${esc(k)}" title="Tempo aus der Datei schätzen"><i class="fa-solid fa-wave-square"></i> Messen</button>
+            <button type="button" class="btn klein" data-tippen="${esc(k)}" title="Song läuft – im Takt hier tippen"><i class="fa-solid fa-hand-pointer"></i> Tippen</button>
+            <button type="button" class="btn klein" data-loeschen="${esc(k)}" title="Song entfernen"><i class="fa-solid fa-trash"></i></button>
+            <span class="eigene-info" data-info="${esc(k)}">${!(v.bpm >= 40) ? '<span class="warnung">BPM fehlt – kommt sonst nicht ins Spiel</span>' : ''}</span>
+        </div>`).join('') : '<p class="hinweis klein" style="margin:.4rem 0 0;">Noch keine eigenen Songs.</p>';
+}
+async function lEigeneHinzufuegen(dateien) {
+    let n = 0;
+    for (const d of dateien) {
+        const key = 'e-' + zufall(8, 'abcdefghijkmnpqrstuvwxyz23456789');
+        // Titel aus dem Dateinamen: Endung, "(Lyrics)", "[Official ...]" und "c+" weg, Bindestrich -> Doppelpunkt
+        const titel = d.name.replace(/\.[a-z0-9]+$/i, '').replace(/[\(\[][^\)\]]*[\)\]]/g, '').replace(/\bc\+/g, '')
+            .replace(/_.*bpm_\d+$/i, '').replace(/\s+-\s+/, ': ').replace(/\s+/g, ' ').trim().slice(0, 60);
+        const bpm = Number((d.name.match(/(\d{2,3})\s*bpm|bpm[_\s]*(\d{2,3})/i) || []).slice(1).find(Boolean)) || null;
+        const dbx = await idb();
+        await new Promise((res, rej) => {
+            const tx = dbx.transaction('hb', 'readwrite');
+            tx.objectStore('hb').put({ blob: d, name: d.name, titel, bpm, seit: Date.now() }, key);
+            tx.oncomplete = res; tx.onerror = () => rej(tx.error);
+        });
+        n++;
+    }
+    await lHbAnzeigen();
+    toast(`${n} Song${n === 1 ? '' : 's'} hinzugefügt – BPM prüfen!`);
+}
+let tippZeiten = [], tippKey = null;
+function lEigeneEreignis(e) {
+    const zeile = e.target.closest('[data-eigen]');
+    const hoeren = e.target.closest('[data-hoeren]');
+    if (hoeren) {
+        const k = hoeren.dataset.hoeren;
+        if (song.dataset.key === k && !song.paused) song.pause();
+        else { song.src = L.hbUrl[k]; song.dataset.key = k; song.volume = 1; song.play().catch(() => { }); }
+        setTimeout(lEigeneZeigen, 50);
+        return;
+    }
+    const messen = e.target.closest('[data-messen]');
+    if (messen) {
+        const k = messen.dataset.messen, info = document.querySelector(`[data-info="${k}"]`);
+        info.textContent = 'messe …';
+        bpmMessen(L.hb[k].blob).then(m => {
+            info.innerHTML = !m.einig ? `Unklar: Bass <b>${m.bass}</b>, gesamt <b>${m.voll}</b> – gegenhören oder „Tippen“!`
+                : m.alt ? `Vorschlag: <b>${m.bass}</b> bpm, vielleicht auch <b>${m.alt}</b> – gegenhören oder „Tippen“!`
+                    : `Vorschlag: <b>${m.bass}</b> bpm`;
+            if (m.einig && !m.alt && !(L.hb[k].bpm >= 40)) { zeile.querySelector('[data-feld="bpm"]').value = m.bass; hbAendern(k, { bpm: m.bass }).then(() => { L.hb[k].bpm = m.bass; }); }
+        }).catch(() => { info.textContent = 'Messen ging nicht'; });
+        return;
+    }
+    const tippen = e.target.closest('[data-tippen]');
+    if (tippen && e.type === 'pointerdown') {
+        const k = tippen.dataset.tippen, t = e.timeStamp || performance.now();
+        if (tippKey !== k || (tippZeiten.length && t - tippZeiten[tippZeiten.length - 1] > 2500)) tippZeiten = [];
+        tippKey = k; tippZeiten.push(t);
+        const bpm = tippBpm(tippZeiten), info = document.querySelector(`[data-info="${k}"]`);
+        if (!bpm) { info.textContent = `weiter tippen … (${tippZeiten.length})`; return; }
+        const wert = Math.round(bpm);
+        info.innerHTML = `getippt: <b>${wert}</b> bpm${tippZeiten.length < 8 ? ' – noch ein paar Mal' : ''}`;
+        if (tippZeiten.length >= 8) { zeile.querySelector('[data-feld="bpm"]').value = wert; hbAendern(k, { bpm: wert }).then(() => { L.hb[k].bpm = wert; }); }
+        return;
+    }
+    const loeschen = e.target.closest('[data-loeschen]');
+    if (loeschen && confirm('Diesen Song aus der Liste entfernen?')) {
+        const k = loeschen.dataset.loeschen;
+        if (song.dataset.key === k) song.pause();
+        hbLoeschen(k).then(lHbAnzeigen);
+    }
 }
 async function lHbWaehlen(dateien) {
     const SCHLUESSEL = ['boy', 'ace', 'crusader', 'digimon', 'voulez'];
@@ -367,9 +551,20 @@ async function lRaumOeffnen(weiter) {
     if (lSpielerAbo) lSpielerAbo();
     lSpielerAbo = onValue(ref(db, pfad(L.code, 'spieler')), s => {
         L.spieler = s.val() || {};
-        Object.keys(L.entfernt).forEach(id => delete L.spieler[id]);
+        // Entfernte bleiben draussen - ausser sie sind danach bewusst neu beigetreten (seit > Zeitpunkt des Entfernens)
+        Object.keys(L.entfernt).forEach(id => {
+            const sp = L.spieler[id], t = L.entfernt[id];
+            if (sp && sp.name && typeof t === 'number' && sp.seit > t) {
+                delete L.entfernt[id];
+                update(ref(db, pfad(L.code, 'lehrer/entfernt')), { [id]: null }).catch(() => { });
+                lSichern();
+            } else delete L.spieler[id];
+        });
+        // Reste ohne Namen (z. B. ein spaetes onDisconnect nach dem Entfernen) ignorieren
+        Object.keys(L.spieler).forEach(id => { if (!L.spieler[id] || !L.spieler[id].name) delete L.spieler[id]; });
         lSpielerZeigen();
         lAbgabeZeigen();
+        if ($('l-spieler-dialog').open) lSpielerListe();
         // Listen mit Namen (nach "Weiterfuehren" kommen die Spieler erst nach dem ersten Zeichnen)
         if (L.phase === 'aufl' || L.phase === 'ende') lZeichnen();
     });
@@ -377,18 +572,59 @@ async function lRaumOeffnen(weiter) {
     lZeichnen();
 }
 
+// on === false: Geraet hat die Verbindung verloren (onDisconnect beim Kind)
+const istWeg = (id) => L.spieler[id] && L.spieler[id].on === false;
+const aktive = () => Object.keys(L.spieler).filter(id => !istWeg(id));
 function lSpielerZeigen() {
-    const ids = Object.keys(L.spieler);
-    $('l-anzahl').textContent = ids.length ? `${ids.length} dabei` : 'Noch niemand da …';
-    $('l-namen').innerHTML = ids.map(id => `<button type="button" class="name" data-raus="${esc(id)}">${esc(L.spieler[id].emoji)} ${esc(L.spieler[id].name)}</button>`).join('');
+    const ids = Object.keys(L.spieler), weg = ids.filter(istWeg).length;
+    $('l-anzahl').textContent = ids.length ? `${ids.length} dabei${weg ? ` · ${weg} ohne Verbindung` : ''}` : 'Noch niemand da …';
+    $('l-namen').innerHTML = ids.map(id => `<button type="button" class="name ${istWeg(id) ? 'weg' : ''}" data-raus="${esc(id)}" title="${istWeg(id) ? 'Keine Verbindung · ' : ''}Antippen zum Entfernen">${esc(L.spieler[id].emoji)} ${esc(L.spieler[id].name)}</button>`).join('');
+    $('l-spieler-zahl').textContent = ids.length;
+    $('l-weg-zahl').textContent = weg ? `${weg} weg` : '';
+    zeigen('l-weg-zahl', weg > 0);
 }
-async function lEntfernen(id) {
-    const sp = L.spieler[id];
-    if (!sp || !confirm(`${sp.name} aus dem Raum entfernen?`)) return;
-    L.entfernt[id] = true;
-    await update(ref(db, pfad(L.code, 'lehrer/entfernt')), { [id]: true });
-    await remove(ref(db, pfad(L.code, `spieler/${id}`)));
+// Ein Schreibvorgang fuer alle: aus spieler loeschen und in lehrer/entfernt eintragen
+async function lEntfernen(ids, frage = true) {
+    ids = ids.filter(id => L.spieler[id]);
+    if (!ids.length) return;
+    const namen = ids.map(id => L.spieler[id].name);
+    if (frage && !confirm(ids.length === 1 ? `${namen[0]} aus dem Raum entfernen?` : `${ids.length} Kinder entfernen?\n${namen.join(', ')}`)) return;
+    const u = {};
+    const t = jetzt();
+    ids.forEach(id => { u[`spieler/${id}`] = null; u[`lehrer/entfernt/${id}`] = t; L.entfernt[id] = t; delete L.spieler[id]; });
+    try { await update(ref(db, pfad(L.code)), u); } catch (e) { toast('Entfernen hat nicht geklappt', 'fehler'); return; }
     lSichern();
+    lSpielerZeigen(); lAbgabeZeigen();
+    if ($('l-spieler-dialog').open) lSpielerListe();
+    lAlleFertigPruefen();
+}
+function lSpielerListe() {
+    const ids = Object.keys(L.spieler).sort((a, b) => (istWeg(b) - istWeg(a)) || L.spieler[a].name.localeCompare(L.spieler[b].name, 'de'));
+    const gewaehlt = new Set([...document.querySelectorAll('[data-wahl]:checked')].map(c => c.dataset.wahl));
+    $('l-spieler-liste').innerHTML = ids.length ? ids.map(id => `<label class="spieler-zeile ${istWeg(id) ? 'weg' : ''}">
+        <input type="checkbox" data-wahl="${esc(id)}" ${gewaehlt.has(id) ? 'checked' : ''}>
+        <span class="punkt-status" title="${istWeg(id) ? 'keine Verbindung' : 'verbunden'}"></span>
+        <span class="n">${esc(L.spieler[id].emoji)} ${esc(L.spieler[id].name)}</span>
+        <span class="p">${L.gesamt[id] || 0} Pkt</span>
+        <button type="button" class="btn klein" data-raus-sofort="${esc(id)}" title="Sofort entfernen"><i class="fa-solid fa-xmark"></i></button>
+    </label>`).join('') : '<p class="hinweis">Niemand im Raum.</p>';
+    lWahlZaehlen();
+}
+function lWahlZaehlen() {
+    const n = document.querySelectorAll('[data-wahl]:checked').length;
+    $('l-raus-btn').disabled = !n;
+    $('l-raus-btn').innerHTML = `<i class="fa-solid fa-user-xmark"></i> ${n ? n + ' ' : ''}Ausgewählte entfernen`;
+}
+function lSpielerDialog() {
+    lSpielerListe();
+    if (!$('l-spieler-dialog').open) $('l-spieler-dialog').showModal();
+}
+// Haben alle verbundenen Kinder abgegeben? Dann Runde aufloesen (auch nach dem Entfernen)
+function lAlleFertigPruefen() {
+    const ids = aktive();
+    if (L.phase === 'frage' && ids.length && ids.every(id => L.antw[id]) && !lEndeGeplant) {
+        lEndeGeplant = setTimeout(() => { lEndeGeplant = null; if (L.phase === 'frage') lAufloesen(); }, 900);
+    }
 }
 
 function lAntwortenAbo() {
@@ -398,18 +634,16 @@ function lAntwortenAbo() {
         L.antw = s.val() || {};
         Object.keys(L.entfernt).forEach(id => delete L.antw[id]);
         lAbgabeZeigen();
-        const n = Object.keys(L.spieler).length;
-        if (L.phase === 'frage' && n && Object.keys(L.antw).filter(id => L.spieler[id]).length >= n && !lEndeGeplant) {
-            lEndeGeplant = setTimeout(() => { lEndeGeplant = null; if (L.phase === 'frage') lAufloesen(); }, 900);
-        }
+        lAlleFertigPruefen();
     });
 }
 function lAbgabeZeigen() {
     if (L.phase !== 'frage') return;
-    const ids = Object.keys(L.spieler), fertig = ids.filter(id => L.antw[id]);
-    $('l-abgabe-text').textContent = `${fertig.length} / ${ids.length} abgegeben`;
-    $('l-abgabe-balken').style.width = ids.length ? `${fertig.length / ids.length * 100}%` : '0';
-    $('l-abgabe-namen').innerHTML = ids.map(id => `<span class="name ${L.antw[id] ? 'fertig' : 'offen'}">${esc(L.spieler[id].emoji)} ${esc(L.spieler[id].name)}</span>`).join('');
+    // Kinder ohne Verbindung zaehlen nicht mit - auf sie wartet die Runde nicht
+    const ids = Object.keys(L.spieler), mit = aktive(), fertig = mit.filter(id => L.antw[id]), weg = ids.length - mit.length;
+    $('l-abgabe-text').textContent = `${fertig.length} / ${mit.length} abgegeben${weg ? ` · ${weg} ohne Verbindung` : ''}`;
+    $('l-abgabe-balken').style.width = mit.length ? `${fertig.length / mit.length * 100}%` : '0';
+    $('l-abgabe-namen').innerHTML = ids.map(id => `<button type="button" class="name ${istWeg(id) ? 'weg' : L.antw[id] ? 'fertig' : 'offen'}" data-raus="${esc(id)}" title="${istWeg(id) ? 'Keine Verbindung · ' : ''}Antippen zum Entfernen">${esc(L.spieler[id].emoji)} ${esc(L.spieler[id].name)}</button>`).join('');
     const r = L.plan[L.pos];
     if (r && r.art === 'quiz') {
         const zahl = $('l-quiz-zahl');
@@ -566,6 +800,7 @@ function songStart(hb) {
     const url = L.hbUrl[hb];
     if (!url) return;
     song.src = url;
+    song.dataset.key = String(hb);
     song.currentTime = 0;
     song.volume = 1;
     song.play().catch(() => toast('Song startet nicht – bitte ▶ drücken', 'fehler'));
@@ -617,7 +852,10 @@ function lZeichnen() {
         $('l-teil-inhalt').innerHTML = `<div class="teil-icon"><i class="fa-solid ${t.icon}"></i></div>
             <div class="teil-folie">${esc(t.folie)} · ${n} Runden</div>
             <h2>${esc(t.name)}</h2><p>${esc(t.text)}</p>
-            ${r.teil === 'tempo' && Object.keys(L.hbUrl).length < 5 ? `<p class="hinweis warnung"><i class="fa-solid fa-triangle-exclamation"></i> ${5 - Object.keys(L.hbUrl).length} Hörbeispiel(e) fehlen – dann über Folie 16 abspielen.</p>` : ''}`;
+            ${(() => {
+                const fehlt = r.teil === 'tempo' ? L.plan.filter(x => x.art === 'tempo' && !L.hbUrl[x.hb]).length : 0;
+                return fehlt ? `<p class="hinweis warnung"><i class="fa-solid fa-triangle-exclamation"></i> ${fehlt} Hörbeispiel(e) nicht geladen – dann über Folie 16 abspielen.</p>` : '';
+            })()}`;
         zeigen('l-teil', true);
         return;
     }
@@ -658,7 +896,7 @@ function lZeichnen() {
 function lRundeHtml(r) {
     if (r.art === 'tempo') {
         return `<div class="buehne tempo">
-            <div class="buehne-klein">Hörbeispiel ${r.hb} von 5</div>
+            <div class="buehne-klein">Hörbeispiel ${r.k || r.hb} von ${r.n || 5}</div>
             <div class="buehne-titel"><i class="fa-solid fa-music"></i> ${esc(r.titel)}</div>
             <div class="puls"><span></span></div>
             <p class="buehne-text">Tippt im Metrum – mindestens 8-mal – und gebt dann ab!</p>
@@ -775,6 +1013,13 @@ function lZeitenZeigen() {
         <button type="button" class="btn" data-zeit="${a}:5">+</button></span>`).join('');
 }
 
+function vollbild() {
+    const d = document.documentElement;
+    if (document.fullscreenElement || document.webkitFullscreenElement) (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+    else if (d.requestFullscreen) d.requestFullscreen().catch(() => toast('Vollbild ging nicht – im Browser-Menü „Vollbild“ wählen', 'fehler'));
+    else if (d.webkitRequestFullscreen) d.webkitRequestFullscreen();
+}
+
 function lehrerStart() {
     zeigen('lehrer', true);
     const bloecke = lesen('mt-bloecke', null);
@@ -788,6 +1033,29 @@ function lehrerStart() {
         $('l-weiter-raum-btn').innerHTML = `<i class="fa-solid fa-rotate-right"></i> Raum ${esc(alt.code)} weiterführen`;
     }
     $('l-hb-datei').addEventListener('change', e => { if (e.target.files.length) lHbWaehlen(e.target.files); e.target.value = ''; });
+    $('l-eigene-datei').addEventListener('change', e => { if (e.target.files.length) lEigeneHinzufuegen([...e.target.files]); e.target.value = ''; });
+    // Haekchen (Song im Spiel ja/nein), Titel und BPM eigener Songs sofort speichern
+    document.addEventListener('change', e => {
+        const an = e.target.closest('[data-hb-an]');
+        if (an) hbAusSetzen(an.dataset.hbAn, !an.checked);
+        const feld = e.target.closest('.eigene-zeile [data-feld]');
+        if (feld) {
+            const k = feld.closest('[data-eigen]').dataset.eigen, wert = feld.dataset.feld === 'bpm' ? (Number(feld.value) || null) : feld.value.trim();
+            hbAendern(k, { [feld.dataset.feld]: wert }).then(() => { L.hb[k][feld.dataset.feld] = wert; if (feld.dataset.feld === 'bpm') lEigeneZeigen(); });
+        }
+        if (e.target.closest('[data-wahl]')) lWahlZaehlen();
+    });
+    $('l-eigene-liste').addEventListener('pointerdown', e => { if (e.target.closest('[data-tippen]')) { e.preventDefault(); lEigeneEreignis(e); } });
+    song.addEventListener('ended', () => { if ($('l-start').offsetParent) lEigeneZeigen(); });
+    // Tastatur am Beamer-Rechner: F = Vollbild, M = Mitspieler (nicht beim Tippen in ein Feld)
+    document.addEventListener('keydown', e => {
+        if (e.target.closest('input, textarea') || e.metaKey || e.ctrlKey || e.altKey) return;
+        if (e.key === 'f' || e.key === 'F') { e.preventDefault(); vollbild(); }
+        if ((e.key === 'm' || e.key === 'M') && L.code) { e.preventDefault(); lSpielerDialog(); }
+    });
+    const vollIcon = () => { $('l-voll-btn').innerHTML = `<i class="fa-solid ${document.fullscreenElement || document.webkitFullscreenElement ? 'fa-compress' : 'fa-expand'}"></i>`; };
+    document.addEventListener('fullscreenchange', vollIcon);
+    document.addEventListener('webkitfullscreenchange', vollIcon);
     $('l-oeffnen-btn').addEventListener('click', () => lRaumOeffnen(null));
     $('l-weiter-raum-btn').addEventListener('click', () => {
         const a = lesen('mt-lehrer', null);
@@ -825,7 +1093,16 @@ function lehrerStart() {
         const sp = e.target.closest('[data-springe]');
         if (sp) { $('l-plan-dialog').close(); audio(); lGeheZu(Number(sp.dataset.springe)); }
         const raus = e.target.closest('[data-raus]');
-        if (raus) lEntfernen(raus.dataset.raus);
+        if (raus) lEntfernen([raus.dataset.raus]);
+        const sofort = e.target.closest('[data-raus-sofort]');
+        if (sofort) { e.preventDefault(); lEntfernen([sofort.dataset.rausSofort]); }
+        if (e.target.closest('#l-spieler-btn')) lSpielerDialog();
+        if (e.target.closest('#l-voll-btn')) vollbild();
+        if (e.target.closest('#l-wahl-alle')) { document.querySelectorAll('[data-wahl]').forEach(c => { c.checked = true; }); lWahlZaehlen(); }
+        if (e.target.closest('#l-wahl-keine')) { document.querySelectorAll('[data-wahl]').forEach(c => { c.checked = false; }); lWahlZaehlen(); }
+        if (e.target.closest('#l-wahl-weg')) { document.querySelectorAll('[data-wahl]').forEach(c => { c.checked = istWeg(c.dataset.wahl); }); lWahlZaehlen(); }
+        if (e.target.closest('#l-raus-btn')) lEntfernen([...document.querySelectorAll('[data-wahl]:checked')].map(c => c.dataset.wahl));
+        if (e.target.closest('[data-hoeren], [data-messen], [data-loeschen]')) lEigeneEreignis(e);
         const z = e.target.closest('[data-zeit]');
         if (z) {
             const [a, d] = z.dataset.zeit.split(':');
@@ -876,7 +1153,9 @@ async function sBeitreten() {
     try {
         const s = await get(ref(db, pfad(sCode, 'lehrer/phase')));
         if (!s.exists()) { toast('Diesen Raum gibt es nicht (mehr).', 'fehler'); return; }
-        await set(ref(db, pfad(sCode, `spieler/${geraet}`)), { name, emoji: sEmoji, seit: serverTimestamp() });
+        sBeitrittZeit = jetzt();
+        await set(ref(db, pfad(sCode, `spieler/${geraet}`)), { name, emoji: sEmoji, seit: serverTimestamp(), on: true });
+        sPraesenz();
     } catch (e) { toast('Keine Verbindung – nochmal versuchen', 'fehler'); return; }
     schreiben('mt-name', name); schreiben('mt-emoji', sEmoji); schreiben('mt-raum', sCode);
     sDrin = true;
@@ -886,12 +1165,28 @@ async function sBeitreten() {
     sLehrerAbo = onValue(ref(db, pfad(sCode, 'lehrer')), s => {
         const st = s.val();
         if (!st) { sRaus('Der Raum wurde geschlossen.'); return; }
-        if (st.entfernt && st.entfernt[geraet]) { sRaus('Du wurdest aus dem Raum genommen.'); return; }
+        // entfernt[id] = Zeitpunkt des Entfernens; wer danach neu beitritt, ist wieder dabei
+        const e = st.entfernt && st.entfernt[geraet];
+        if (e === true || (typeof e === 'number' && e > sBeitrittZeit)) {
+            try { localStorage.removeItem('mt-raum'); } catch (x) { /* egal */ }   // kein automatischer Wiederbeitritt
+            sRaus('Du wurdest aus dem Raum genommen. Mit „Mitspielen“ kannst du neu beitreten.');
+            return;
+        }
         sStand = st;
         sZeichnen();
     });
 }
+/* Anwesenheit: on = true, und Firebase setzt on = false, sobald die
+   Verbindung des Geraets abreisst (onDisconnect). Nach einem Wiederverbinden
+   erneut melden (Listener auf .info/connected ganz oben). */
+let sBeitrittZeit = 0;
+function sPraesenz() {
+    if (!sCode) return;
+    const r = ref(db, pfad(sCode, `spieler/${geraet}/on`));
+    onDisconnect(r).set(false).then(() => (sDrin ? set(r, true) : null)).catch(() => { });
+}
 function sRaus(text) {
+    if (sCode) onDisconnect(ref(db, pfad(sCode, `spieler/${geraet}/on`))).cancel().catch(() => { });
     if (sLehrerAbo) sLehrerAbo();
     sLehrerAbo = null; sDrin = false; clearInterval(sTimer);
     zeigen('s-spiel', false); zeigen('s-beitritt', true);
