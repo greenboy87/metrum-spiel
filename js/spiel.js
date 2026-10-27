@@ -444,8 +444,10 @@ async function lEigeneHinzufuegen(dateien) {
     for (const d of dateien) {
         const key = 'e-' + zufall(8, 'abcdefghijkmnpqrstuvwxyz23456789');
         // Titel aus dem Dateinamen: Endung, "(Lyrics)", "[Official ...]" und "c+" weg, Bindestrich -> Doppelpunkt
+        // Den Titel sehen die Kinder - Tempo und Nummer aus dem Dateinamen duerfen nicht drinstehen
         const titel = d.name.replace(/\.[a-z0-9]+$/i, '').replace(/[\(\[][^\)\]]*[\)\]]/g, '').replace(/\bc\+/g, '')
-            .replace(/_.*bpm_\d+$/i, '').replace(/\s+-\s+/, ': ').replace(/\s+/g, ' ').trim().slice(0, 60);
+            .replace(/_.*bpm_\d+$/i, '').replace(/[\s_-]*\d{2,3}\s*bpm\b/gi, '').replace(/^\d{1,2}[\s._-]+/, '')
+            .replace(/[\s-]+$/, '').replace(/\s+-\s+/, ': ').replace(/\s+/g, ' ').trim().slice(0, 60);
         const bpm = Number((d.name.match(/(\d{2,3})\s*bpm|bpm[_\s]*(\d{2,3})/i) || []).slice(1).find(Boolean)) || null;
         const dbx = await idb();
         await new Promise((res, rej) => {
