@@ -25,6 +25,13 @@ LearningApps wird bewusst nicht übernommen.
   (`bpmMessen`) schätzt das Tempo per Spektralfluss, gesamt und Bass < 150 Hz,
   wie mit Python an Toms Songs geeicht; bei Widerspruch oder starkem 3:2-/4:3-
   Nachbarn nennt es beide Werte. „Tippen“ übernimmt das getippte Tempo.
+- **Songwahl** (`songAuswahl`, `mt-songwahl` = `{folie16, n}`): Standard =
+  die angehakten Folie-16-Songs fest, dazu `n` (5) zufällig aus dem Pool der
+  angehakten eigenen Songs – bei jedem „Raum öffnen“ neu gezogen. Ohne
+  Folie-16-Schalter kommt alles in einen Pool. `n = 99` heißt „alle“.
+  Eigene Songs starten bei 0:30, wenn sie länger als 90 s sind (`songLaden`).
+  Fertiger Pool mit Tempo im Dateinamen: Stundenordner, „Metrum-Challenge
+  Songpool c+“.
 - **Anwesenheit:** Kinder setzen `spieler/<id>/on = true` und hinterlegen
   `onDisconnect(...).set(false)`. Kinder ohne Verbindung zählen bei „alle
   abgegeben“ nicht mit. Mitspieler-Dialog (Knopf oder Taste M): einzeln,

@@ -376,10 +376,9 @@ function planBauen() {
     schreiben('mt-bloecke', an);
     const plan = [];
     if (an.includes('tempo')) {
-        const aus = hbAus();
-        const songs = TEMPO.filter(t => !aus.has(String(t.hb))).map(t => ({ hb: t.hb, titel: t.titel, bpm: t.bpm }))
-            .concat(eigeneSongs().filter(([k, v]) => !aus.has(k) && v.bpm >= 40 && v.bpm <= 240)
-                .map(([k, v]) => ({ hb: k, titel: v.titel || v.name, bpm: Number(v.bpm) })));
+        // Feste Songs (Folie 16) zuerst, dann zufaellig gezogene aus dem Pool - bei jedem Raum neu
+        const { fest, pool, n } = songAuswahl();
+        const songs = fest.concat(mischen(pool.length).slice(0, Math.min(n, pool.length)).map(i => pool[i]));
         if (songs.length) {
             plan.push({ art: 'teil', teil: 'tempo' });
             songs.forEach((t, i) => plan.push(Object.assign({ art: 'tempo', i, k: i + 1, n: songs.length }, t)));
@@ -397,6 +396,28 @@ function planBauen() {
         NACH.forEach((n, i) => plan.push({ art: 'nach', i, bpm: n.bpm, r: n.r }));
     }
     return plan;
+}
+/* Songwahl: {folie16: Songs von Folie 16 immer spielen, n: so viele zufaellig
+   aus dem Pool}. Pool = angehakte eigene Songs mit BPM, ohne Folie-16-Schalter
+   auch die angehakten Folie-16-Songs. n = 99 heisst "alle". */
+const ZUFALL_STUFEN = [0, 1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 15, 99];
+const songwahl = () => Object.assign({ folie16: true, n: 5 }, lesen('mt-songwahl', {}));
+function songAuswahl() {
+    const w = songwahl(), aus = hbAus();
+    const standard = TEMPO.filter(t => !aus.has(String(t.hb))).map(t => ({ hb: t.hb, titel: t.titel, bpm: t.bpm }));
+    const eigene = eigeneSongs().filter(([k, v]) => !aus.has(k) && v.bpm >= 40 && v.bpm <= 240)
+        .map(([k, v]) => ({ hb: k, titel: v.titel || v.name, bpm: Number(v.bpm) }));
+    return w.folie16 ? { fest: standard, pool: eigene, n: w.n } : { fest: [], pool: standard.concat(eigene), n: w.n };
+}
+function lSongwahlZeigen() {
+    const w = songwahl(), { fest, pool } = songAuswahl();
+    const zug = Math.min(w.n, pool.length);
+    $('l-folie16').checked = w.folie16;
+    $('l-zufall-name').textContent = w.folie16 ? '+ zufällig' : 'Songs zufällig';
+    $('l-zufall-wert').textContent = w.n >= 99 ? 'alle' : w.n;
+    $('l-songwahl-info').textContent = `= ${fest.length + zug} Songs pro Spiel` +
+        (w.folie16 ? ` (${fest.length} von Folie 16 + ${zug} aus ${pool.length} im Pool)` : ` (aus ${pool.length} im Pool)`) +
+        (w.n < 99 && pool.length < w.n ? ' – Pool kleiner als gewünscht' : '');
 }
 const spielRunden = () => L.plan.filter(r => r.art !== 'teil');
 function rundenNr(pos) { return L.plan.slice(0, pos + 1).filter(r => r.art !== 'teil').length; }
@@ -438,6 +459,7 @@ function lEigeneZeigen() {
             <button type="button" class="btn klein" data-loeschen="${esc(k)}" title="Song entfernen"><i class="fa-solid fa-trash"></i></button>
             <span class="eigene-info" data-info="${esc(k)}">${!(v.bpm >= 40) ? '<span class="warnung">BPM fehlt – kommt sonst nicht ins Spiel</span>' : ''}</span>
         </div>`).join('') : '<p class="hinweis klein" style="margin:.4rem 0 0;">Noch keine eigenen Songs.</p>';
+    lSongwahlZeigen();   // Pool-Groesse haengt an Haekchen und BPM
 }
 async function lEigeneHinzufuegen(dateien) {
     let n = 0;
@@ -467,7 +489,7 @@ function lEigeneEreignis(e) {
     if (hoeren) {
         const k = hoeren.dataset.hoeren;
         if (song.dataset.key === k && !song.paused) song.pause();
-        else { song.src = L.hbUrl[k]; song.dataset.key = k; song.volume = 1; song.play().catch(() => { }); }
+        else { songLaden(k, L.hbUrl[k]); song.play().catch(() => { }); }
         setTimeout(lEigeneZeigen, 50);
         return;
     }
@@ -801,13 +823,19 @@ function songStart(hb) {
     songStopp();
     const url = L.hbUrl[hb];
     if (!url) return;
-    song.src = url;
-    song.dataset.key = String(hb);
-    song.currentTime = 0;
-    song.volume = 1;
+    songLaden(hb, url);
     song.play().catch(() => toast('Song startet nicht – bitte ▶ drücken', 'fehler'));
     lSongKnopf();
 }
+// Eigene Songs sind meist ganze Titel: ab 0:30 starten, damit kein langes Intro ohne Beat laeuft
+function songLaden(key, url) {
+    song.src = url;
+    song.dataset.key = String(key);
+    song.dataset.ab = String(key).startsWith('e-') ? '30' : '0';
+    song.volume = 1;
+    song.addEventListener('loadedmetadata', () => { if (song.duration > 90) song.currentTime = Number(song.dataset.ab); }, { once: true });
+}
+const songAnfang = () => (song.duration > 90 ? Number(song.dataset.ab || 0) : 0);
 function songStopp() {
     clearInterval(songFade); songFade = null;
     song.pause();
@@ -1039,7 +1067,8 @@ function lehrerStart() {
     // Haekchen (Song im Spiel ja/nein), Titel und BPM eigener Songs sofort speichern
     document.addEventListener('change', e => {
         const an = e.target.closest('[data-hb-an]');
-        if (an) hbAusSetzen(an.dataset.hbAn, !an.checked);
+        if (an) { hbAusSetzen(an.dataset.hbAn, !an.checked); lSongwahlZeigen(); }
+        if (e.target.id === 'l-folie16') { schreiben('mt-songwahl', Object.assign(songwahl(), { folie16: e.target.checked })); lSongwahlZeigen(); }
         const feld = e.target.closest('.eigene-zeile [data-feld]');
         if (feld) {
             const k = feld.closest('[data-eigen]').dataset.eigen, wert = feld.dataset.feld === 'bpm' ? (Number(feld.value) || null) : feld.value.trim();
@@ -1098,6 +1127,13 @@ function lehrerStart() {
         if (raus) lEntfernen([raus.dataset.raus]);
         const sofort = e.target.closest('[data-raus-sofort]');
         if (sofort) { e.preventDefault(); lEntfernen([sofort.dataset.rausSofort]); }
+        const zf = e.target.closest('[data-zufall]');
+        if (zf) {
+            const w = songwahl(), i = ZUFALL_STUFEN.indexOf(w.n) >= 0 ? ZUFALL_STUFEN.indexOf(w.n) : 5;
+            w.n = ZUFALL_STUFEN[Math.max(0, Math.min(ZUFALL_STUFEN.length - 1, i + Number(zf.dataset.zufall)))];
+            schreiben('mt-songwahl', w);
+            lSongwahlZeigen();
+        }
         if (e.target.closest('#l-spieler-btn')) lSpielerDialog();
         if (e.target.closest('#l-voll-btn')) vollbild();
         if (e.target.closest('#l-wahl-alle')) { document.querySelectorAll('[data-wahl]').forEach(c => { c.checked = true; }); lWahlZaehlen(); }
@@ -1121,7 +1157,7 @@ function lehrerStart() {
         if (e.target.closest('#l-song-btn')) {
             if (song.paused) { song.volume = 1; song.play().catch(() => { }); } else song.pause();
         }
-        if (e.target.closest('#l-song-neu')) { song.currentTime = 0; song.volume = 1; song.play().catch(() => { }); }
+        if (e.target.closest('#l-song-neu')) { song.currentTime = songAnfang(); song.volume = 1; song.play().catch(() => { }); }
         if (e.target.closest('#l-vorspielen-btn')) lNochmalVorspielen();
         if (e.target.closest('#l-aufl-hoeren')) {
             const r = L.plan[L.pos];

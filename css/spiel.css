@@ -327,3 +327,10 @@ button.name:hover { background: rgba(248, 113, 113, .2); border-color: var(--rot
 .punkt-status { width: .65rem; height: .65rem; border-radius: 50%; background: var(--gruen); box-shadow: 0 0 6px var(--gruen); flex: none; }
 .spieler-zeile.weg .punkt-status { background: var(--rot); box-shadow: 0 0 6px var(--rot); }
 .spieler-zeile.weg { background: rgba(248, 113, 113, .08); }
+
+/* ---------- Songwahl ---------- */
+.songwahl { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem 1rem; margin-top: 1rem; padding: .8rem 1rem; border-radius: 1rem; background: rgba(52, 211, 153, .07); border: 1px solid rgba(52, 211, 153, .25); }
+.songwahl b i { color: var(--gruen); }
+.block-klein { display: inline-flex; align-items: center; gap: .4rem; cursor: pointer; }
+.block-klein input { width: 1.1rem; height: 1.1rem; accent-color: var(--gruen); }
+.songwahl .stufen { margin: 0; }

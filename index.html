@@ -10,7 +10,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Comfortaa:wght@700&family=DM+Sans:wght@400;500;700;900&family=Russo+One&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
-<link rel="stylesheet" href="css/spiel.css?v=4">
+<link rel="stylesheet" href="css/spiel.css?v=5">
 </head>
 <body>
 
@@ -53,7 +53,19 @@
                     <input type="file" id="l-eigene-datei" accept="audio/*,.mp3,.m4a,.wav" multiple hidden></label>
             </div>
             <div id="l-eigene-liste" class="eigene-liste"></div>
-            <p class="hinweis klein">Titel und BPM eintragen – „Messen“ schlägt ein Tempo vor (bitte gegenhören), „Tippen“: Song abspielen und im Takt auf den Knopf tippen. Eigene Songs kommen nach den fünf Songs von Folie 16 dran und bleiben nur in diesem Browser.</p>
+            <p class="hinweis klein">Das ist dein Song-Pool: Häkchen = darf vorkommen. Titel und BPM eintragen – „Messen“ schlägt ein Tempo vor (bitte gegenhören), „Tippen“: Song abspielen und im Takt auf den Knopf tippen. Steht das Tempo im Dateinamen („… - 116 bpm“), wird es übernommen. Lange Songs starten bei 0:30, damit das Intro nicht stört. Alles bleibt nur in diesem Browser.</p>
+
+            <div class="songwahl">
+                <b><i class="fa-solid fa-shuffle"></i> Pro Spiel</b>
+                <label class="block-klein"><input type="checkbox" id="l-folie16"> Songs von Folie 16 immer spielen</label>
+                <span class="stufen" title="So viele Songs zieht das Spiel bei jedem „Raum öffnen“ zufällig aus dem Pool">
+                    <span class="stufen-name" id="l-zufall-name">+ zufällig</span>
+                    <button type="button" class="btn" data-zufall="-1" aria-label="Weniger">−</button>
+                    <span class="stufen-wert" id="l-zufall-wert"></span>
+                    <button type="button" class="btn" data-zufall="1" aria-label="Mehr">+</button>
+                </span>
+                <span class="hinweis klein" id="l-songwahl-info"></span>
+            </div>
         </div>
 
         <details class="regeln" open>
@@ -200,8 +212,8 @@
 
 <div id="toast-bereich"></div>
 
-<script src="js/qrcode.min.js?v=4"></script>
-<script src="js/noten.js?v=4"></script>
-<script type="module" src="js/spiel.js?v=4"></script>
+<script src="js/qrcode.min.js?v=5"></script>
+<script src="js/noten.js?v=5"></script>
+<script type="module" src="js/spiel.js?v=5"></script>
 </body>
 </html>
