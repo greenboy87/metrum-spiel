@@ -89,10 +89,11 @@ function tempoBasis(ziel, bpm) {
     if (!(bpm > 0)) return { b: 0, abw: null, halb: false };
     const stufe = (d) => (TEMPO_STUFEN.find(([g]) => d <= g) || [0, 0])[1];
     const d = Math.abs(bpm - ziel) / ziel * 100;
-    // Halbes oder doppeltes Tempo ist auch ein Metrum - gibt halbe Punkte (und damit keinen Platzbonus)
-    const dh = Math.min(Math.abs(bpm * 2 - ziel), Math.abs(bpm / 2 - ziel)) / ziel * 100;
-    if (stufe(d) === 0 && stufe(dh) > 0) return { b: stufe(dh) / 2, abw: d, halb: true };
-    return { b: stufe(d), abw: d, halb: false };
+    // Es zaehlt nur das angegebene Tempo (Toms Entscheidung). Halbes oder doppeltes
+    // Tempo gibt 0 Punkte - wird aber erkannt, damit die Aufloesung es benennen kann.
+    const halb = stufe(d) === 0 && stufe(Math.abs(bpm * 2 - ziel) / ziel * 100) > 0 ? 'halb'
+        : stufe(d) === 0 && stufe(Math.abs(bpm / 2 - ziel) / ziel * 100) > 0 ? 'doppelt' : false;
+    return { b: stufe(d), abw: d, halb };
 }
 function quizBasis(richtig, w) { return { b: w === richtig ? 100 : 0 }; }
 
@@ -424,7 +425,7 @@ function rundenNr(pos) { return L.plan.slice(0, pos + 1).filter(r => r.art !== '
 
 function regelnHtml() {
     return `<ul class="regel-liste">
-        <li><b>Tempo tippen:</b> Abweichung bis 3 % = 100 · bis 6 % = 80 · bis 10 % = 60 · bis 15 % = 40 · bis 20 % = 20 Punkte. Halbes oder doppeltes Tempo zählt halb.</li>
+        <li><b>Tempo tippen:</b> Abweichung bis 3 % = 100 · bis 6 % = 80 · bis 10 % = 60 · bis 15 % = 40 · bis 20 % = 20 Punkte. Es zählt nur das angegebene Tempo – halbes oder doppeltes Tempo gibt keine Punkte.</li>
         <li><b>Millionär:</b> richtige Antwort = 100 Punkte.</li>
         <li><b>Nachmachen:</b> 100 Punkte für einen genauen Rhythmus, weniger, je weiter die Tipps danebenliegen oder wenn Schläge fehlen bzw. zu viel sind.</li>
         <li><b>Platzbonus:</b> Die ersten fünf, die mit mindestens 60 Punkten abgeben, bekommen +50 / +40 / +30 / +20 / +10.</li>
@@ -981,7 +982,7 @@ function lAufloesungZeigen(r) {
     if (r.art === 'nach') notenMalen($('l-noten'), r.r, 2.2);
 
     const wert = (z) => {
-        if (r.art === 'tempo') return `${rund1(Number(z.w))} bpm <small>${z.abw == null ? '' : (z.abw < 0.5 ? 'genau' : (Number(z.w) > r.bpm ? '+' : '−') + Math.round(z.abw) + ' %')}${z.halb ? ' · halb/doppelt' : ''}</small>`;
+        if (r.art === 'tempo') return `${rund1(Number(z.w))} bpm <small>${z.abw == null ? '' : (z.abw < 0.5 ? 'genau' : (Number(z.w) > r.bpm ? '+' : '−') + Math.round(z.abw) + ' %')}${z.halb ? ` · ${z.halb === 'halb' ? 'halbes' : 'doppeltes'} Tempo – zählt nicht` : ''}</small>`;
         if (r.art === 'quiz') return `${ABCD[Number(z.w)] || '?'} ${Number(z.w) === r.richtig ? '✅' : '❌'}`;
         return `${z.b} %`;
     };
@@ -1421,7 +1422,8 @@ function sErgebnisZeigen(key) {
     const st = sStand, w = st.wertung && st.wertung[geraet], meine = sAbgabe[key], l = st.loesung || {};
     let detail = '';
     if (st.art === 'tempo') {
-        detail = `<p class="s-mittel">Lösung: <b>ca. ${l.bpm} bpm</b></p>${meine !== undefined ? `<p class="hinweis">Du: ${meine} bpm</p>` : ''}`;
+        const h = meine !== undefined ? tempoBasis(l.bpm, Number(meine)).halb : false;
+        detail = `<p class="s-mittel">Lösung: <b>ca. ${l.bpm} bpm</b></p>${meine !== undefined ? `<p class="hinweis">Du: ${meine} bpm${h ? ` – das ist das ${h === 'halb' ? 'halbe' : 'doppelte'} Tempo, es zählt nur ${l.bpm}` : ''}</p>` : ''}`;
     } else if (st.art === 'quiz') {
         const a = st.aufgabe || {};
         detail = `<p class="s-mittel">Richtig: <b>${ABCD[l.richtig]}</b> – ${esc((a.antworten || [])[l.richtig] || '')}</p>`;
