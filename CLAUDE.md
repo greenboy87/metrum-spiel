@@ -9,6 +9,14 @@ learningapps.org/watch?v=pdatcfv2j21), Vor- & Nachmachen (Folie 21).
 Aufbau und Raum-Logik wie das Klassenspiel der Rhythmus-Werkstatt
 (`rhythmus-werkstatt/js/klasse.js`), Look wie das Scoreboard (`musik-quiz`).
 
+## millionaer.html: Metronom-Millionär ohne LearningApps
+
+1:1-Nachbau des LearningApps-Spiels (learningapps.org/watch?v=pdatcfv2j21),
+damit das Quiz von Folie 17 auch ohne LearningApps läuft. Jedes Kind spielt
+allein, ohne Anmeldung und ohne Datenbank. Fragen stehen in `FRAGEN` (erste
+Antwort = richtig). Den Strahlen-Hintergrund zeichnet CSS – das Bild von
+LearningApps wird bewusst nicht übernommen.
+
 ## Keine Musik ins Repository
 
 Die Songs von Folie 16 sind urheberrechtlich geschützt und liegen **nicht** hier.

@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta http-equiv="Cache-Control" content="no-cache, must-revalidate">
+<title>Metronom-Millionär</title>
+<meta name="description" content="Beantworte korrekt! Sechs Fragen zu Metrum, Tempo und Metronom – von 500 bis 1'000'000.">
+<!--
+  Nachbau des LearningApps-Spiels "Metronom-Millionär"
+  (learningapps.org/watch?v=pdatcfv2j21, Werkzeug 301 "Millionenspiel"),
+  damit das Quiz der Stunde auch ohne LearningApps läuft.
+  Ablauf wie im Original (tools/301/10/script.js): Aufgabe-Fenster, vor jeder
+  Frage 2 s die Gewinnleiter, Antworten gemischt, richtig = grün blinken und
+  nach 2 s weiter, falsch = rot + richtige blinkt, nach 3 s "Leider verloren!"
+  und Neustart bei 500, nach der Million Smiley + Rückmeldung.
+  Ohne Datenbank: jedes Kind spielt allein auf seinem Gerät.
+  Fragen bearbeiten: FRAGEN unten (je Stufe eine Liste, erste Antwort = richtig;
+  mehrere Fragen je Stufe werden wie im Original zufällig gezogen).
+-->
+<style>
+    html, body { height: 100%; margin: 0; }
+    body {
+        font-family: Arial, Helvetica, sans-serif;
+        -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
+        color: #fff; overflow: hidden;
+        background-color: #05024a;
+        /* Strahlen-Hintergrund wie im Original, nur mit CSS gezeichnet */
+        background-image:
+            radial-gradient(ellipse at 52% 48%, rgba(255, 255, 255, .55) 0%, rgba(140, 140, 255, .35) 6%, rgba(40, 30, 220, 0) 30%),
+            repeating-conic-gradient(from 0deg at 52% 48%, rgba(120, 120, 255, .28) 0deg 3deg, rgba(20, 10, 160, 0) 6deg 11deg, rgba(160, 160, 255, .2) 13deg 15deg, rgba(20, 10, 160, 0) 18deg 24deg),
+            radial-gradient(ellipse at 70% 10%, rgba(200, 200, 255, .5), rgba(0, 0, 0, 0) 45%),
+            radial-gradient(ellipse at 20% 45%, rgba(170, 170, 255, .45), rgba(0, 0, 0, 0) 40%),
+            radial-gradient(ellipse at 50% 50%, #2b1df0 0%, #1709b8 35%, #070258 75%, #02001f 100%);
+    }
+    .ecke { position: absolute; top: 6px; z-index: 50; width: 30px; height: 30px; border: 0; border-radius: 6px; background: rgba(255, 255, 255, .15); color: #fff; font-size: 16px; cursor: pointer; }
+    .ecke:hover { background: rgba(255, 255, 255, .3); }
+    #aufgabeKnopf { left: 6px; font-weight: bold; font-family: Georgia, serif; }
+    #vollKnopf { right: 6px; }
+
+    #scrollPanel { position: absolute; inset: 0; overflow: auto; display: flex; align-items: center; justify-content: center; }
+    #questionPanel { display: none; width: 100%; text-align: center; padding: 3vh 0; }
+    .kasten {
+        border: 5px solid #fff; border-radius: 20px;
+        background: rgba(120, 100, 250, 0.7);
+        box-shadow: 1px 1px 3px #333;
+        box-sizing: border-box;
+    }
+    .frage {
+        width: 84%; margin: 0 auto; padding: 30px;
+        display: flex; align-items: center; justify-content: center;
+        min-height: calc(min(20vw, 20vh) + 20px);
+    }
+    #frage { font-weight: bold; text-align: center; line-height: 1.2; }
+    #antworten { display: flex; flex-wrap: wrap; justify-content: center; }
+    .antwort {
+        cursor: pointer; position: relative; padding: 10px;
+        width: 40%; min-width: 300px; margin: 2%;
+        height: min(20vw, 20vh); min-height: 70px;
+        display: flex; align-items: center; gap: .4em; overflow: hidden;
+        transition: background-color 0s;
+        -webkit-tap-highlight-color: transparent; touch-action: manipulation;
+    }
+    @media (hover: hover) { .antwort:hover { background-color: rgba(140, 120, 255, 0.9); } }
+    .antwortLabel { color: #ff801a; font-weight: bold; font-size: 2.2em; padding: 0 .25em; flex: none; }
+    .antwortText { font-weight: bold; text-align: left; line-height: 1.2; flex: 1; }
+    .antwort.leer { opacity: 0; pointer-events: none; }
+    /* Handy hochkant: Antworten untereinander, etwas hoeher, damit lange Saetze lesbar bleiben */
+    @media (max-width: 700px) {
+        .antwort { width: 90%; min-width: 0; height: min(30vw, 15vh); margin: 1.5% 2%; }
+        .frage { width: 90%; padding: 20px; }
+    }
+
+    #progressPanel {
+        display: none; position: absolute; left: 50%; top: 25%;
+        transform: translateX(-50%); width: 220px;
+        background: rgba(0, 0, 0, 0.8);
+    }
+    #progressPanel .stufen { width: 120px; margin: 50px; text-align: right; font-size: 20px; font-weight: bold; }
+    #progressPanel .stufen div { position: relative; padding: 2px 0; }
+    #progressPanel .stufen div.an::before {
+        content: ''; position: absolute; left: 0; top: 50%;
+        width: 11px; height: 11px; margin-top: -6px;
+        background: #ff9a1a; transform: rotate(45deg);
+        box-shadow: 0 0 6px rgba(255, 154, 26, .8);
+    }
+
+    .overlay { display: none; position: absolute; inset: 0; z-index: 100; }
+    .overlay .weiss { position: absolute; inset: 0; background: #fff; opacity: .5; }
+    .rahmen {
+        position: absolute; left: 50%; transform: translateX(-50%);
+        width: 340px; max-width: 90vw; box-sizing: border-box; text-align: center;
+        background: #615afe; border: 5px solid #fff; border-radius: 20px;
+        box-shadow: 1px 1px 3px #333; padding: 10px; color: #fff;
+    }
+    #wrongAnswerPanel .rahmen { top: 150px; font-size: 40px; }
+    #finishPanel .rahmen { top: 80px; font-size: 30px; }
+    .smile { font-size: 80px; line-height: 1.1; }
+    .button { font-size: 20px; cursor: pointer; margin: 25px 30px 5px; padding: 6px; border-radius: 10px; }
+    .button:hover { background: rgba(140, 120, 255, 1); }
+
+    #aufgabePanel { display: none; position: absolute; inset: 0; z-index: 200; }
+    #aufgabePanel .fenster {
+        position: absolute; left: 50%; top: 20%; transform: translateX(-50%);
+        width: 40%; min-width: 260px; box-sizing: border-box;
+        background: #fff; color: #222; border: 10px solid #ddd; border-radius: 10px;
+        box-shadow: 0 0 10px #333; padding: 10px; text-align: center;
+    }
+    #aufgabePanel b { font-size: 150%; display: block; margin-bottom: 5px; }
+    #aufgabePanel button { font-size: 120%; margin-top: 10px; padding: 2px 12px; }
+</style>
+</head>
+<body>
+
+<button type="button" class="ecke" id="aufgabeKnopf" title="Aufgabe">i</button>
+<button type="button" class="ecke" id="vollKnopf" title="Vollbild">⛶</button>
+
+<div id="aufgabePanel">
+    <div class="fenster">
+        <b>Aufgabe</b>
+        <div id="aufgabeText">Beantworte korrekt!</div>
+        <button type="button" id="aufgabeOk">OK</button>
+    </div>
+</div>
+
+<div id="wrongAnswerPanel" class="overlay">
+    <div class="weiss"></div>
+    <div class="rahmen">
+        <span>Leider verloren!</span>
+        <div class="button" data-neustart>Nochmal versuchen.</div>
+    </div>
+</div>
+
+<div id="finishPanel" class="overlay">
+    <div class="weiss"></div>
+    <div class="rahmen">
+        <div class="smile">😀</div>
+        <span id="niceText">Herzlichen Glückwunsch!</span>
+        <div class="button" data-neustart>Nochmals spielen!</div>
+    </div>
+</div>
+
+<div id="progressPanel">
+    <div class="stufen" id="stufen"></div>
+</div>
+
+<div id="scrollPanel">
+    <div id="questionPanel">
+        <div class="frage kasten"><div id="frage"></div></div>
+        <div id="antworten">
+            <div class="antwort kasten" data-nr="0"><span class="antwortLabel">A</span><span class="antwortText"></span></div>
+            <div class="antwort kasten" data-nr="1"><span class="antwortLabel">B</span><span class="antwortText"></span></div>
+            <div class="antwort kasten" data-nr="2"><span class="antwortLabel">C</span><span class="antwortText"></span></div>
+            <div class="antwort kasten" data-nr="3"><span class="antwortLabel">D</span><span class="antwortText"></span></div>
+        </div>
+    </div>
+</div>
+
+<script>
+// Je Stufe eine Liste von Fragen; die erste Antwort ist die richtige (wie in LearningApps).
+const FRAGEN = [
+    [{ frage: 'Welche Aussage ist richtig?', antworten: ['Das Metrum ist ein gleichmäßiges Wiederkehren eines Schlages (Puls).', 'Das Metrum ist ein Gerät zur Angabe des Tempos.', 'Das Metrum kann nie schneller als 120bpm sein.', 'Das Metrum ist ein Einkaufscenter.'] }],
+    [{ frage: 'Was gibt das Metronom an?', antworten: ['Das Tempo.', 'Den Wetterbericht.', 'Die Lottozahlen.', '120 bpm.'] }],
+    [{ frage: 'Kann das Tempo in einem Werk verändert werden?', antworten: ['Ja.', 'Nein.'] }],
+    [{ frage: 'Auf welches Instrument höre ich, um das Metrum leichter herauszufinden?', antworten: ['Auf das Drumset.', 'Auf die Gitarre.', 'Auf das Klavier.', 'Auf den E-Bass.'] }],
+    [{ frage: 'Was ist die Englische Übersetzung für "Schläge pro Minute"?', antworten: ['beats per minute.', 'pulse per minute.', 'drag and drop.', '120 per minute.'] }],
+    [{ frage: 'Bei 120 bpm erklingen ...', antworten: ['2 Schläge pro Sekunde.', '3 Schläge pro Sekunde.', '4 Schläge pro Sekunde.', '1 Schlag pro Sekunde.'] }]
+];
+const STUFEN = ['500', "1'000", "5'000", "50'000", "250'000", "1'000'000"];
+const AUFGABE = 'Beantworte korrekt!';
+const RUECKMELDUNG = 'Prima, du hast die richtige Lösung gefunden!';
+const GRUEN = '#86da33', ROT = '#da5733';
+
+const $ = (id) => document.getElementById(id);
+const felder = [...document.querySelectorAll('.antwort')];
+let stufe = -1, richtig = -1, gewaehlt = false, timer = [];
+const benutzt = {};
+
+function warte(fn, ms) { timer.push(setTimeout(fn, ms)); }
+function mischen(a) {
+    a = a.slice();
+    for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; }
+    return a;
+}
+
+function leiterZeigen() {
+    $('stufen').innerHTML = STUFEN.map((s, i) => `<div class="${i === stufe ? 'an' : ''}">${s}</div>`).reverse().join('');
+}
+
+function naechsteFrage() {
+    $('questionPanel').style.display = 'none';
+    $('progressPanel').style.display = 'block';
+    stufe++;
+    leiterZeigen();
+    if (stufe > 5) { geschafft(); return; }
+    const liste = FRAGEN[stufe];
+    if (!benutzt[stufe] || benutzt[stufe].length >= liste.length) benutzt[stufe] = [];
+    let n = Math.floor(Math.random() * liste.length);
+    for (let i = 0; i < 10 && benutzt[stufe].includes(n); i++) n = Math.floor(Math.random() * liste.length);
+    benutzt[stufe].push(n);
+    frageSetzen(liste[n]);
+    warte(() => {
+        $('progressPanel').style.display = 'none';
+        $('questionPanel').style.display = 'block';
+        schriftAnpassen();
+    }, 2000);
+}
+
+function frageSetzen(f) {
+    gewaehlt = false;
+    $('frage').textContent = f.frage;
+    const liste = mischen(f.antworten.filter(a => a !== ''));
+    felder.forEach((el, i) => {
+        el.style.backgroundColor = '';
+        const t = liste[i];
+        el.classList.toggle('leer', t === undefined);
+        el.querySelector('.antwortText').textContent = t || '';
+        if (t === f.antworten[0]) richtig = i;
+    });
+}
+
+function blinken(el, farbe) {
+    [0, 100, 200, 300, 400].forEach((ms, k) => warte(() => { el.style.backgroundColor = k % 2 ? '' : farbe; }, ms));
+}
+
+function waehlen(el) {
+    if (gewaehlt) return;
+    gewaehlt = true;
+    const nr = Number(el.dataset.nr);
+    if (nr === richtig) {
+        blinken(el, GRUEN);
+        warte(naechsteFrage, 2000);
+    } else {
+        el.style.backgroundColor = ROT;
+        blinken(felder[richtig], GRUEN);
+        warte(() => { $('wrongAnswerPanel').style.display = 'block'; }, 3000);
+    }
+}
+
+function geschafft() {
+    $('niceText').textContent = RUECKMELDUNG;
+    $('finishPanel').style.display = 'block';
+}
+
+function neustart() {
+    timer.forEach(clearTimeout); timer = [];
+    $('wrongAnswerPanel').style.display = 'none';
+    $('finishPanel').style.display = 'none';
+    stufe = -1;
+    naechsteFrage();
+}
+
+// Schrift so gross wie moeglich, ohne dass Text aus seinem Feld laeuft (wie rescaleFontSize im Original)
+function schriftAnpassen() {
+    const m = Math.max(innerWidth, innerHeight);
+    const basis = Math.round(m / 70);
+    const fit = (el, max, hoehe) => {
+        let g = max;
+        el.style.fontSize = g + 'px';
+        while (g > 9 && (el.scrollHeight > hoehe || el.scrollWidth > el.clientWidth + 1)) { g -= 1; el.style.fontSize = g + 'px'; }
+    };
+    const antwortHoehe = felder[0].clientHeight - 20;
+    fit($('frage'), basis * 2, Math.max(antwortHoehe, 60));
+    felder.forEach(el => fit(el.querySelector('.antwortText'), Math.round(basis * 1.7), antwortHoehe));
+}
+
+felder.forEach(el => el.addEventListener('click', () => waehlen(el)));
+document.querySelectorAll('[data-neustart]').forEach(b => b.addEventListener('click', neustart));
+$('aufgabeText').textContent = AUFGABE;
+$('aufgabeOk').addEventListener('click', () => { $('aufgabePanel').style.display = 'none'; });
+$('aufgabeKnopf').addEventListener('click', () => { $('aufgabePanel').style.display = 'block'; });
+$('vollKnopf').addEventListener('click', () => {
+    const d = document.documentElement;
+    if (document.fullscreenElement) document.exitFullscreen();
+    else if (d.requestFullscreen) d.requestFullscreen().catch(() => { });
+    else if (d.webkitRequestFullscreen) d.webkitRequestFullscreen();
+});
+addEventListener('resize', () => { if ($('questionPanel').style.display === 'block') schriftAnpassen(); });
+
+$('aufgabePanel').style.display = 'block';
+neustart();
+</script>
+</body>
+</html>
