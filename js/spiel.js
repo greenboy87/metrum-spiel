@@ -860,6 +860,7 @@ song.addEventListener('pause', lSongKnopf);
 /* ---------- Zeichnen (Beamer) ---------- */
 function lZeichnen() {
     ['l-lobby', 'l-teil', 'l-runde', 'l-aufl', 'l-ende'].forEach(id => zeigen(id, false));
+    lSongsImSpielZeigen();
     const r = L.plan[L.pos];
     const gesamtRunden = spielRunden().length;
     clearInterval(lTimer);
@@ -1038,6 +1039,59 @@ function notenMalen(host, kuerzel, skal) {
     host.innerHTML = stueckAnzeigeHtml(stueck, { zaehlzeiten: true, undAlsPlus: true, breite: 360, skalierung: skal });
 }
 
+/* ---------- Songs waehrend des Spiels nachlegen ----------
+   Liste unter dem Spiel: Songs im Plan (gespielt / laeuft / kommt) und die
+   uebrigen aus dem Pool (angehakte Songs mit BPM) zum Hinzufuegen. Neue Songs
+   kommen ans Ende des Tempo-Teils; ist der schon vorbei, direkt als naechste Runde. */
+function lSongsImSpielZeigen() {
+    if (!$('l-songs-im-spiel')) return;
+    const imPlan = L.plan.map((r, k) => ({ r, k })).filter(x => x.r.art === 'tempo');
+    const drin = new Set(imPlan.map(x => String(x.r.hb)));
+    const { fest, pool } = songAuswahl();
+    const frei = fest.concat(pool).filter(s => !drin.has(String(s.hb)));
+    const status = (k) => k < L.pos || (k === L.pos && L.phase !== 'frage') ? 'gespielt' : k === L.pos ? 'läuft' : 'kommt';
+    $('l-songs-kurz').textContent = `(${imPlan.length} im Spiel · ${frei.length} weitere im Pool)`;
+    $('l-songs-im-spiel').innerHTML = `
+        <ol class="songs-plan">${imPlan.map(({ r, k }) => `<li class="${status(k)}">
+            <span class="n">${esc(r.titel)}</span><span class="w">${r.bpm} bpm</span><span class="s">${status(k)}</span></li>`).join('') || '<li class="leer">Kein Tempo-Teil im Spiel</li>'}</ol>
+        <div class="leiste" style="margin:.8rem 0 .4rem;">
+            <b>Weitere Songs aus dem Pool</b>
+            <button type="button" class="btn btn-primaer klein" data-song-zufall ${frei.length ? '' : 'disabled'}><i class="fa-solid fa-shuffle"></i> + zufälliger Song</button>
+        </div>
+        <div class="songs-frei">${frei.map(s => `<button type="button" class="btn klein" data-song-dazu="${esc(String(s.hb))}" title="Als nächsten freien Tempo-Song einreihen">
+            <i class="fa-solid fa-plus"></i> ${esc(s.titel)} <small>${s.bpm}</small></button>`).join('') || '<span class="hinweis klein">Alle Songs aus dem Pool sind schon im Spiel. Mehr Songs fügst du auf der Startseite unter „Eigene Songs“ hinzu.</span>'}</div>`;
+}
+async function lSongEinfuegen(hb) {
+    const { fest, pool } = songAuswahl();
+    const drin = new Set(L.plan.filter(r => r.art === 'tempo').map(r => String(r.hb)));
+    const frei = fest.concat(pool).filter(s => !drin.has(String(s.hb)));
+    const s = hb === null ? frei[Math.floor(Math.random() * frei.length)] : frei.find(x => String(x.hb) === String(hb));
+    if (!s) return;
+    const runde = { art: 'tempo', hb: s.hb, titel: s.titel, bpm: s.bpm };
+    const letzte = L.plan.map(r => r.art).lastIndexOf('tempo');
+    let wo;
+    if (letzte >= 0 && letzte >= L.pos) wo = letzte + 1;                 // Tempo-Teil laeuft noch oder kommt noch
+    else {
+        wo = L.pos + 1;                                                   // Tempo-Teil vorbei (oder nie da): direkt als naechste Runde
+        if (letzte < 0) { L.plan.splice(wo, 0, { art: 'teil', teil: 'tempo' }); wo++; }
+    }
+    L.plan.splice(wo, 0, runde);
+    // Tempo-Runden neu durchzaehlen ("Hoerbeispiel k von n")
+    const tempo = L.plan.filter(r => r.art === 'tempo');
+    tempo.forEach((r, i) => { r.i = i; r.k = i + 1; r.n = tempo.length; });
+    try { await update(ref(db, pfad(L.code, 'lehrer')), { anzahl: spielRunden().length }); } catch (e) { /* Anzeige bei den Kindern ist nur Kosmetik */ }
+    lSichern();
+    toast(`„${s.titel}“ kommt als ${L.plan.slice(0, wo + 1).filter(r => r.art !== 'teil').length}. Runde dran`);
+    // Laufende Runde nicht neu aufbauen (Song, Timer) - nur Kopfzeile, Liste und ggf. "Weiter"-Knopf
+    if (L.phase === 'frage') {
+        const r = L.plan[L.pos];
+        $('l-phase-info').textContent = `${TEIL_INFO[r.art].name} · Runde ${rundenNr(L.pos)} von ${spielRunden().length}`;
+        const kopf = document.querySelector('#l-runde-inhalt .buehne-klein');
+        if (kopf && r.art === 'tempo') kopf.textContent = `Hörbeispiel ${r.k} von ${r.n}`;
+        lSongsImSpielZeigen();
+    } else lZeichnen();
+}
+
 function lZeitenZeigen() {
     $('l-zeiten').innerHTML = ['tempo', 'quiz', 'nach'].map(a => `<span class="stufen"><span class="stufen-name">${esc(TEIL_INFO[a].name)}</span>
         <button type="button" class="btn" data-zeit="${a}:-5">−</button><span class="stufen-wert">${L.zeiten[a]} s</span>
@@ -1135,6 +1189,9 @@ function lehrerStart() {
             schreiben('mt-songwahl', w);
             lSongwahlZeigen();
         }
+        const dazu = e.target.closest('[data-song-dazu]');
+        if (dazu && L.code) lSongEinfuegen(dazu.dataset.songDazu);
+        if (e.target.closest('[data-song-zufall]') && L.code) lSongEinfuegen(null);
         if (e.target.closest('#l-spieler-btn')) lSpielerDialog();
         if (e.target.closest('#l-voll-btn')) vollbild();
         if (e.target.closest('#l-wahl-alle')) { document.querySelectorAll('[data-wahl]').forEach(c => { c.checked = true; }); lWahlZaehlen(); }

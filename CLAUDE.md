@@ -32,6 +32,11 @@ LearningApps wird bewusst nicht übernommen.
   Eigene Songs starten bei 0:30, wenn sie länger als 90 s sind (`songLaden`).
   Fertiger Pool mit Tempo im Dateinamen: Stundenordner, „Metrum-Challenge
   Songpool c+“.
+- **Songs nachlegen** („Songs im Spiel“ unter dem Spiel, `lSongEinfuegen`):
+  zeigt die Tempo-Runden des Plans (gespielt/läuft/kommt) und die übrigen
+  Pool-Songs. Ein neuer Song kommt ans Ende des Tempo-Teils, ist der vorbei,
+  direkt nach der aktuellen Runde. Die laufende Runde wird dabei nicht neu
+  aufgebaut; `lehrer/anzahl` und „Hörbeispiel k von n“ werden nachgezogen.
 - **Anwesenheit:** Kinder setzen `spieler/<id>/on = true` und hinterlegen
   `onDisconnect(...).set(false)`. Kinder ohne Verbindung zählen bei „alle
   abgegeben“ nicht mit. Mitspieler-Dialog (Knopf oder Taste M): einzeln,
