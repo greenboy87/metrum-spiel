@@ -351,3 +351,8 @@ button.name:hover { background: rgba(248, 113, 113, .2); border-color: var(--rot
 
 /* Auto weiter */
 .btn.schalter.an { background: var(--cyan); color: #04202a; border-color: var(--cyan); }
+
+/* Spielart: ganze Challenge oder nur Tempo tippen */
+.modus-wahl { display: flex; flex-wrap: wrap; gap: .5rem; margin: .8rem 0 .2rem; }
+.modus-wahl .btn { font-size: 1.05rem; padding: .6rem 1.1rem; }
+.modus-wahl .btn.an { background: var(--gruen); color: #04202a; border-color: var(--gruen); }

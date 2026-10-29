@@ -32,6 +32,11 @@ LearningApps wird bewusst nicht übernommen.
   Eigene Songs starten bei 0:30, wenn sie länger als 90 s sind (`songLaden`).
   Fertiger Pool mit Tempo im Dateinamen: Stundenordner, „Metrum-Challenge
   Songpool c+“.
+- **Spielart** (`mt-modus`, Knöpfe oben auf der Startseite): „Ganze
+  Challenge“ (Teile per Häkchen) oder „Nur Tempo tippen“ – dann nur der
+  Tempo-Teil, und statt „+ zufällig“ wählt man die Rundenzahl
+  (`songwahl().runden`, 3–30 oder alle). Folie-16-Songs kommen zuerst (bei
+  weniger Runden zufällig gekürzt), der Rest zufällig aus dem Pool.
 - **Songs nachlegen** („Songs im Spiel“ unter dem Spiel, `lSongEinfuegen`):
   zeigt die Tempo-Runden des Plans (gespielt/läuft/kommt) und die übrigen
   Pool-Songs. Ein neuer Song kommt ans Ende des Tempo-Teils, ist der vorbei,

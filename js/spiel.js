@@ -375,8 +375,9 @@ function lSichern() {
 }
 
 function planBauen() {
-    const an = [...document.querySelectorAll('[data-block]')].filter(c => c.checked).map(c => c.dataset.block);
-    schreiben('mt-bloecke', an);
+    // "Nur Tempo tippen": ohne Millionaer und Nachmachen, die Haekchen der Teile bleiben fuer spaeter gespeichert
+    const an = modus() === 'tempo' ? ['tempo'] : [...document.querySelectorAll('[data-block]')].filter(c => c.checked).map(c => c.dataset.block);
+    if (modus() !== 'tempo') schreiben('mt-bloecke', an);
     const plan = [];
     if (an.includes('tempo')) {
         // Feste Songs (Folie 16) zuerst, dann zufaellig gezogene aus dem Pool - bei jedem Raum neu
@@ -401,19 +402,46 @@ function planBauen() {
     return plan;
 }
 /* Songwahl: {folie16: Songs von Folie 16 immer spielen, n: so viele zufaellig
-   aus dem Pool}. Pool = angehakte eigene Songs mit BPM, ohne Folie-16-Schalter
-   auch die angehakten Folie-16-Songs. n = 99 heisst "alle". */
+   aus dem Pool, runden: Songs insgesamt bei "Nur Tempo tippen"}. Pool =
+   angehakte eigene Songs mit BPM, ohne Folie-16-Schalter auch die angehakten
+   Folie-16-Songs. n bzw. runden = 99 heisst "alle". */
 const ZUFALL_STUFEN = [0, 1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 15, 99];
-const songwahl = () => Object.assign({ folie16: true, n: 5 }, lesen('mt-songwahl', {}));
+const RUNDEN_STUFEN = [3, 4, 5, 6, 7, 8, 9, 10, 12, 15, 20, 25, 30, 99];
+const songwahl = () => Object.assign({ folie16: true, n: 5, runden: 10 }, lesen('mt-songwahl', {}));
+const modus = () => lesen('mt-modus', 'alle');   // 'alle' = ganze Challenge, 'tempo' = nur Tempo tippen
 function songAuswahl() {
     const w = songwahl(), aus = hbAus();
     const standard = TEMPO.filter(t => !aus.has(String(t.hb))).map(t => ({ hb: t.hb, titel: t.titel, bpm: t.bpm }));
     const eigene = eigeneSongs().filter(([k, v]) => !aus.has(k) && v.bpm >= 40 && v.bpm <= 240)
         .map(([k, v]) => ({ hb: k, titel: v.titel || v.name, bpm: Number(v.bpm) }));
+    if (modus() === 'tempo') {
+        // Feste Rundenzahl: Folie-16-Songs zuerst (zufaellig gekuerzt, wenn es weniger Runden sind), Rest aus dem Pool
+        const fest = w.folie16 ? mischen(standard.length).slice(0, Math.min(w.runden, standard.length)).sort((a, b) => a - b).map(i => standard[i]) : [];
+        const pool = w.folie16 ? eigene : standard.concat(eigene);
+        return { fest, pool, n: w.runden >= 99 ? 99 : Math.max(0, w.runden - fest.length) };
+    }
     return w.folie16 ? { fest: standard, pool: eigene, n: w.n } : { fest: [], pool: standard.concat(eigene), n: w.n };
 }
+function lModusZeigen() {
+    const m = modus();
+    document.querySelectorAll('[data-modus]').forEach(b => b.classList.toggle('an', b.dataset.modus === m));
+    $('l-bloecke').classList.toggle('hidden', m === 'tempo');
+    $('l-modus-info').textContent = m === 'tempo'
+        ? 'Nur Tempo tippen: Songs hören, im Metrum tippen – ohne Millionär und ohne Vor- & Nachmachen. Unten wählst du, wie viele Runden.'
+        : 'Raum öffnen, die Klasse scannt den QR-Code und gibt ihren Namen ein. Danach drei Teile – du wählst, welche:';
+    lSongwahlZeigen();
+}
 function lSongwahlZeigen() {
-    const w = songwahl(), { fest, pool } = songAuswahl();
+    const w = songwahl(), { fest, pool, n } = songAuswahl();
+    if (modus() === 'tempo') {
+        const zug = Math.min(n, pool.length), gesamt = fest.length + zug;
+        $('l-folie16').checked = w.folie16;
+        $('l-zufall-name').textContent = 'Runden';
+        $('l-zufall-wert').textContent = w.runden >= 99 ? 'alle' : w.runden;
+        $('l-songwahl-info').textContent = `= ${gesamt} Songs` + (w.folie16 && fest.length ? ` (${fest.length} von Folie 16 + ${zug} aus dem Pool)` : ` (aus ${pool.length + fest.length} im Pool)`) +
+            (w.runden < 99 && gesamt < w.runden ? ` – nur ${gesamt} Songs vorhanden` : '');
+        return;
+    }
     const zug = Math.min(w.n, pool.length);
     $('l-folie16').checked = w.folie16;
     $('l-zufall-name').textContent = w.folie16 ? '+ zufällig' : 'Songs zufällig';
@@ -1127,6 +1155,7 @@ function lehrerStart() {
     const bloecke = lesen('mt-bloecke', null);
     if (bloecke) document.querySelectorAll('[data-block]').forEach(c => { c.checked = bloecke.includes(c.dataset.block); });
     $('l-regeln').innerHTML = regelnHtml();
+    lModusZeigen();
     lHbAnzeigen();
     lZeitenZeigen();
     lAutoKnopf();
@@ -1202,11 +1231,14 @@ function lehrerStart() {
         if (sofort) { e.preventDefault(); lEntfernen([sofort.dataset.rausSofort]); }
         const zf = e.target.closest('[data-zufall]');
         if (zf) {
-            const w = songwahl(), i = ZUFALL_STUFEN.indexOf(w.n) >= 0 ? ZUFALL_STUFEN.indexOf(w.n) : 5;
-            w.n = ZUFALL_STUFEN[Math.max(0, Math.min(ZUFALL_STUFEN.length - 1, i + Number(zf.dataset.zufall)))];
+            const w = songwahl(), feld = modus() === 'tempo' ? 'runden' : 'n', stufen = feld === 'runden' ? RUNDEN_STUFEN : ZUFALL_STUFEN;
+            const i = stufen.indexOf(w[feld]) >= 0 ? stufen.indexOf(w[feld]) : 5;
+            w[feld] = stufen[Math.max(0, Math.min(stufen.length - 1, i + Number(zf.dataset.zufall)))];
             schreiben('mt-songwahl', w);
             lSongwahlZeigen();
         }
+        const mo = e.target.closest('[data-modus]');
+        if (mo) { schreiben('mt-modus', mo.dataset.modus); lModusZeigen(); }
         const dazu = e.target.closest('[data-song-dazu]');
         if (dazu && L.code) lSongEinfuegen(dazu.dataset.songDazu);
         if (e.target.closest('[data-song-zufall]') && L.code) lSongEinfuegen(null);
