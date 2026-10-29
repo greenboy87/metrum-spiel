@@ -10,7 +10,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Comfortaa:wght@700&family=DM+Sans:wght@400;500;700;900&family=Russo+One&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
-<link rel="stylesheet" href="css/spiel.css?v=7">
+<link rel="stylesheet" href="css/spiel.css?v=8">
 </head>
 <body>
 
@@ -130,7 +130,8 @@
             <div class="leiste" style="margin-top:1rem;">
                 <span id="l-runde-knoepfe" class="leiste"></span>
                 <span class="fuellt"></span>
-                <button type="button" class="btn btn-warnung" id="l-beenden-btn"><i class="fa-solid fa-flag-checkered"></i> Auflösen</button>
+                <button type="button" class="btn schalter" id="l-auto-btn" title="An: Sobald alle abgegeben haben, kommt das Ergebnis von selbst. Aus: Du drückst selbst auf „Ergebnis anzeigen“."></button>
+                <button type="button" class="btn btn-warnung" id="l-beenden-btn"><i class="fa-solid fa-flag-checkered"></i> Ergebnis anzeigen</button>
             </div>
         </div>
 
@@ -164,7 +165,7 @@
             <div id="l-songs-im-spiel"></div>
         </details>
         <details class="einstellungen">
-            <summary><i class="fa-solid fa-sliders"></i> Zeit je Runde</summary>
+            <summary><i class="fa-solid fa-sliders"></i> Zeit je Runde · erst zuhören</summary>
             <div class="leiste" id="l-zeiten"></div>
         </details>
     </section>
@@ -216,8 +217,8 @@
 
 <div id="toast-bereich"></div>
 
-<script src="js/qrcode.min.js?v=7"></script>
-<script src="js/noten.js?v=7"></script>
-<script type="module" src="js/spiel.js?v=7"></script>
+<script src="js/qrcode.min.js?v=8"></script>
+<script src="js/noten.js?v=8"></script>
+<script type="module" src="js/spiel.js?v=8"></script>
 </body>
 </html>

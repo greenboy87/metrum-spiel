@@ -46,6 +46,12 @@ LearningApps wird bewusst nicht übernommen.
   ein online entferntes Gerät verliert `mt-raum` und tritt nicht von selbst
   wieder bei.
 - **Vollbild:** Knopf in der Raumleiste oder Taste F.
+- **Auto weiter** (Schalter neben „Ergebnis anzeigen“, `mt-auto`, Standard an):
+  an = Runde löst sich auf, sobald alle verbundenen Kinder abgegeben haben;
+  aus = nur per Knopf oder wenn die Zeit abläuft.
+- **Erst zuhören** (`L.zeiten.hoeren`, Standard 10 s, 0–60, unter „Zeit je
+  Runde“): Beim Tempo-Tippen setzt die Lehrkraft `spieltBis`; bis dahin ist
+  die Tipp-Taste der Kinder gesperrt, die Rundenzeit beginnt erst danach.
 
 ## Keine Musik ins Repository
 

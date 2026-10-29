@@ -348,3 +348,6 @@ button.name:hover { background: rgba(248, 113, 113, .2); border-color: var(--rot
 .songs-plan li.läuft .s { color: var(--pink); font-weight: 700; }
 .songs-frei { display: flex; flex-wrap: wrap; gap: .4rem; }
 .songs-frei small { color: var(--blass); }
+
+/* Auto weiter */
+.btn.schalter.an { background: var(--cyan); color: #04202a; border-color: var(--cyan); }

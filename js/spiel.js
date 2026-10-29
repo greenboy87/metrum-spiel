@@ -78,7 +78,8 @@ const TEIL_INFO = {
     quiz: { name: 'Metronom-Millionär', icon: 'fa-sack-dollar', folie: 'Folie 17', text: 'Sechs Fragen von 500 € bis zur Million. Tippt die richtige Antwort – je schneller, desto mehr Punkte.' },
     nach: { name: 'Vor- & Nachmachen', icon: 'fa-hands-clapping', folie: 'Folie 21', text: 'Der Beamer klatscht einen Rhythmus zum Metronom vor. Erst zuhören – dann tippt ihr ihn auf eurem Gerät nach.' }
 };
-const ZEIT_STANDARD = { tempo: 60, quiz: 20, nach: 30 };
+// hoeren = Sekunden, die der Song beim Tempo-Tippen erst laeuft, bevor die Kinder tippen koennen
+const ZEIT_STANDARD = { tempo: 60, quiz: 20, nach: 30, hoeren: 10 };
 
 /* ---------- Punkte ---------- */
 const PUNKTE_PLATZ = [50, 40, 30, 20, 10];   // Bonus fuer die ersten Abgaben ...
@@ -362,6 +363,7 @@ const L = {
     code: null, spiel: null, plan: [], pos: -1, phase: 'lobby',
     gesamt: {}, spieler: {}, antw: {}, entfernt: {},
     zeiten: Object.assign({}, ZEIT_STANDARD, lesen('mt-zeiten', {})),
+    auto: lesen('mt-auto', true),
     start: 0, dauer: 0, letzte: null, hb: {}, hbUrl: {}
 };
 let lSpielerAbo = null, lAntwAbo = null, lTimer = null, lEndeGeplant = null;
@@ -644,12 +646,20 @@ function lSpielerDialog() {
     lSpielerListe();
     if (!$('l-spieler-dialog').open) $('l-spieler-dialog').showModal();
 }
-// Haben alle verbundenen Kinder abgegeben? Dann Runde aufloesen (auch nach dem Entfernen)
+// Haben alle verbundenen Kinder abgegeben? Dann Runde aufloesen (auch nach dem Entfernen) -
+// nur mit "Auto weiter", sonst loest die Lehrkraft selbst auf
 function lAlleFertigPruefen() {
     const ids = aktive();
-    if (L.phase === 'frage' && ids.length && ids.every(id => L.antw[id]) && !lEndeGeplant) {
+    if (L.auto && L.phase === 'frage' && ids.length && ids.every(id => L.antw[id]) && !lEndeGeplant) {
         lEndeGeplant = setTimeout(() => { lEndeGeplant = null; if (L.phase === 'frage') lAufloesen(); }, 900);
     }
+}
+
+function lAutoKnopf() {
+    const b = $('l-auto-btn');
+    b.classList.toggle('an', L.auto);
+    b.setAttribute('aria-pressed', L.auto);
+    b.innerHTML = `<i class="fa-solid ${L.auto ? 'fa-toggle-on' : 'fa-toggle-off'}"></i> Auto weiter`;
 }
 
 function lAntwortenAbo() {
@@ -698,12 +708,13 @@ async function lGeheZu(pos) {
     lAntwortenAbo();
     // Song noch im Klick starten - Safari blockt play() nach einem await
     if (r.art === 'tempo') songStart(r.hb);
-    // Nachmachen: Zeit laeuft erst ab Ende des Vorspielens
+    // Nachmachen: Zeit laeuft erst ab Ende des Vorspielens; Tempo: erst ein paar Sekunden zuhoeren
     let spieltBis = null;
     if (r.art === 'nach') {
         const dauer = vorspielen(r.bpm, r.r, lSchlagZeigen);
         spieltBis = jetzt() + dauer;
     }
+    if (r.art === 'tempo' && L.zeiten.hoeren > 0) spieltBis = jetzt() + L.zeiten.hoeren * 1000;
     L.start = spieltBis || jetzt();
     await update(ref(db, pfad(L.code, 'lehrer')), {
         phase: 'frage', nr: pos, rundeNr: rundenNr(pos), art: r.art, aufgabe, loesung: null, wertung: null,
@@ -907,6 +918,9 @@ function lZeichnen() {
             const rest = Math.ceil((L.start + L.dauer * 1000 - jetzt()) / 1000);
             const vorspiel = jetzt() < L.start;
             $('l-timer').textContent = vorspiel ? '🎧' : Math.max(0, rest);
+            const txt = $('l-tempo-text');
+            if (txt) txt.innerHTML = vorspiel ? `🎧 Erst zuhören … Tippen geht in ${Math.ceil((L.start - jetzt()) / 1000)} s los`
+                : 'Tippt im Metrum – mindestens 8-mal – und gebt dann ab!';
             $('l-timer').classList.toggle('knapp', !vorspiel && rest <= 5);
             if (!vorspiel && rest <= 0 && L.phase === 'frage') { clearInterval(lTimer); lAufloesen(); }
         };
@@ -931,7 +945,7 @@ function lRundeHtml(r) {
             <div class="buehne-klein">Hörbeispiel ${r.k || r.hb} von ${r.n || 5}</div>
             <div class="buehne-titel"><i class="fa-solid fa-music"></i> ${esc(r.titel)}</div>
             <div class="puls"><span></span></div>
-            <p class="buehne-text">Tippt im Metrum – mindestens 8-mal – und gebt dann ab!</p>
+            <p class="buehne-text" id="l-tempo-text">Tippt im Metrum – mindestens 8-mal – und gebt dann ab!</p>
         </div>`;
     }
     if (r.art === 'quiz') {
@@ -1095,7 +1109,10 @@ async function lSongEinfuegen(hb) {
 function lZeitenZeigen() {
     $('l-zeiten').innerHTML = ['tempo', 'quiz', 'nach'].map(a => `<span class="stufen"><span class="stufen-name">${esc(TEIL_INFO[a].name)}</span>
         <button type="button" class="btn" data-zeit="${a}:-5">−</button><span class="stufen-wert">${L.zeiten[a]} s</span>
-        <button type="button" class="btn" data-zeit="${a}:5">+</button></span>`).join('');
+        <button type="button" class="btn" data-zeit="${a}:5">+</button></span>`).join('')
+        + `<span class="stufen" title="So lange läuft der Song beim Tempo-Tippen, bevor die Kinder tippen können"><span class="stufen-name">Erst zuhören</span>
+        <button type="button" class="btn" data-zeit="hoeren:-5">−</button><span class="stufen-wert">${L.zeiten.hoeren} s</span>
+        <button type="button" class="btn" data-zeit="hoeren:5">+</button></span>`;
 }
 
 function vollbild() {
@@ -1112,6 +1129,7 @@ function lehrerStart() {
     $('l-regeln').innerHTML = regelnHtml();
     lHbAnzeigen();
     lZeitenZeigen();
+    lAutoKnopf();
     const alt = lesen('mt-lehrer', null);
     if (alt && alt.code && Date.now() - alt.zeit < 4 * 3600 * 1000) {
         $('l-weiter-raum-btn').classList.remove('hidden');
@@ -1194,6 +1212,13 @@ function lehrerStart() {
         if (e.target.closest('[data-song-zufall]') && L.code) lSongEinfuegen(null);
         if (e.target.closest('#l-spieler-btn')) lSpielerDialog();
         if (e.target.closest('#l-voll-btn')) vollbild();
+        if (e.target.closest('#l-auto-btn')) {
+            L.auto = !L.auto;
+            schreiben('mt-auto', L.auto);
+            lAutoKnopf();
+            lAlleFertigPruefen();
+            if (!L.auto) { clearTimeout(lEndeGeplant); lEndeGeplant = null; }
+        }
         if (e.target.closest('#l-wahl-alle')) { document.querySelectorAll('[data-wahl]').forEach(c => { c.checked = true; }); lWahlZaehlen(); }
         if (e.target.closest('#l-wahl-keine')) { document.querySelectorAll('[data-wahl]').forEach(c => { c.checked = false; }); lWahlZaehlen(); }
         if (e.target.closest('#l-wahl-weg')) { document.querySelectorAll('[data-wahl]').forEach(c => { c.checked = istWeg(c.dataset.wahl); }); lWahlZaehlen(); }
@@ -1202,7 +1227,7 @@ function lehrerStart() {
         const z = e.target.closest('[data-zeit]');
         if (z) {
             const [a, d] = z.dataset.zeit.split(':');
-            L.zeiten[a] = Math.max(10, Math.min(180, L.zeiten[a] + Number(d)));
+            L.zeiten[a] = a === 'hoeren' ? Math.max(0, Math.min(60, L.zeiten[a] + Number(d))) : Math.max(10, Math.min(180, L.zeiten[a] + Number(d)));
             schreiben('mt-zeiten', L.zeiten);
             lZeitenZeigen();
             const r = L.plan[L.pos];
@@ -1395,8 +1420,22 @@ function sTempoZeigen(neu) {
         </div>`;
     sTipps = [];
     const tap = $('s-tap');
+    // Erst zuhoeren: Taste gesperrt, bis die Lehrkraft-Vorgabe (spieltBis) vorbei ist
+    const hoerTick = () => {
+        if ($('s-tap') !== tap) return clearInterval(hoerUhr);
+        const rest = st.spieltBis ? Math.ceil((st.spieltBis - jetzt()) / 1000) : 0;
+        tap.classList.toggle('gesperrt', rest > 0);
+        if (rest > 0) { $('s-tap-bpm').textContent = '🎧'; $('s-tap-info').textContent = `erst zuhören … ${rest}`; }
+        else {
+            clearInterval(hoerUhr);
+            if (!sTipps.length) { $('s-tap-bpm').textContent = 'Tipp!'; $('s-tap-info').textContent = 'jetzt im Metrum tippen'; }
+        }
+    };
+    const hoerUhr = setInterval(hoerTick, 250);
+    hoerTick();
     tap.addEventListener('pointerdown', e => {
         e.preventDefault();
+        if (st.spieltBis && jetzt() < st.spieltBis) return;
         const t = e.timeStamp || performance.now();
         // Nach einer langen Pause neu anfangen
         if (sTipps.length && t - sTipps[sTipps.length - 1] > 2500) sTipps = [];
